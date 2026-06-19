@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>能力地图</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-module-type="ability">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">能</span>
+          <div>
+            <h1>能力地图</h1>
+            <p>基于总览页的 career_profile 单独生成能力结构和训练任务</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="ghost-link" href="./index.html">返回总览</a>
+          <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
+        </div>
+      </header>
+
+      <main class="workspace module-workspace">
+        <section class="intake-panel" aria-label="能力地图补充信息">
+          <div class="panel-heading">
+            <span class="step-badge">02</span>
+            <div>
+              <h2>补充能力自评</h2>
+              <p>这里只生成能力地图，不重复读取完整简历</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>能力自评和偏好</span>
+            <textarea id="selfAssessmentInput" class="compact-textarea" maxlength="800" placeholder="例如：我喜欢分析问题，不太喜欢高频销售沟通，执行力一般但写作还可以。"></textarea>
+          </label>
+          <label class="field">
+            <span>补充问题</span>
+            <textarea id="moduleQuestionInput" class="compact-textarea" maxlength="800" placeholder="例如：我最该补哪几项能力？"></textarea>
+          </label>
+
+          <div class="button-row">
+            <button class="primary-button" id="runModuleBtn" type="button">生成深度分析</button>
+          </div>
+        </section>
+
+        <section class="report-panel" aria-label="能力地图分析结果">
+          <div class="report-toolbar">
+            <div>
+              <span class="eyebrow">子页面</span>
+              <h2 id="moduleTitle">能力地图</h2>
+            </div>
+            <button class="ghost-button" id="exportBtn" type="button">导出 JSON</button>
+          </div>
+          <section class="result-section">
+            <div class="section-title">
+              <span>档</span>
+              <h3>已读取的职业画像</h3>
+            </div>
+            <div class="profile-summary" id="profileSummary"></div>
+          </section>
+          <section class="module-output" id="moduleOutput"></section>
+        </section>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script src="./ai-client.js"></script>
+    <script src="./module-page.js"></script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "career-overview-ai-mvp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A no-build AI career development overview MVP with a local Node.js API proxy.",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check app.js && node --check module-page.js && node --check ai-client.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5"
+  }
+}

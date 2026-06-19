@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>职业方向分析</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-module-type="career">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">职</span>
+          <div>
+            <h1>职业方向分析</h1>
+            <p>基于总览页的 career_profile 单独分析岗位方向</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="ghost-link" href="./index.html">返回总览</a>
+          <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
+        </div>
+      </header>
+
+      <main class="workspace module-workspace">
+        <section class="intake-panel" aria-label="职业方向补充信息">
+          <div class="panel-heading">
+            <span class="step-badge">02</span>
+            <div>
+              <h2>补充职业目标</h2>
+              <p>这里只生成职业方向，不重复读取完整简历</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>目标行业</span>
+            <input id="targetIndustryInput" type="text" maxlength="80" placeholder="例如：互联网、金融、公关传播" />
+          </label>
+          <label class="field">
+            <span>目标岗位</span>
+            <input id="targetRoleInput" type="text" maxlength="80" placeholder="例如：数据分析、产品运营" />
+          </label>
+          <label class="field">
+            <span>目标城市</span>
+            <input id="targetCityInput" type="text" maxlength="80" placeholder="例如：北京、上海、深圳" />
+          </label>
+          <label class="field">
+            <span>期望薪资</span>
+            <input id="salaryExpectationInput" type="text" maxlength="80" placeholder="例如：10-15k，可不填" />
+          </label>
+          <label class="field">
+            <span>是否接受转行或从初级岗位开始</span>
+            <input id="acceptTransitionInput" type="text" maxlength="80" placeholder="例如：接受转行，但不想降薪太多" />
+          </label>
+          <label class="field">
+            <span>补充问题</span>
+            <textarea id="moduleQuestionInput" class="compact-textarea" maxlength="800" placeholder="例如：我应该优先投哪些岗位？"></textarea>
+          </label>
+
+          <div class="button-row">
+            <button class="primary-button" id="runModuleBtn" type="button">生成深度分析</button>
+          </div>
+        </section>
+
+        <section class="report-panel" aria-label="职业方向分析结果">
+          <div class="report-toolbar">
+            <div>
+              <span class="eyebrow">子页面</span>
+              <h2 id="moduleTitle">职业方向分析</h2>
+            </div>
+            <button class="ghost-button" id="exportBtn" type="button">导出 JSON</button>
+          </div>
+          <section class="result-section">
+            <div class="section-title">
+              <span>档</span>
+              <h3>已读取的职业画像</h3>
+            </div>
+            <div class="profile-summary" id="profileSummary"></div>
+          </section>
+          <section class="module-output" id="moduleOutput"></section>
+        </section>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script src="./ai-client.js"></script>
+    <script src="./module-page.js"></script>
+  </body>
+</html>

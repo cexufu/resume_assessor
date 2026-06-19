@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: career-overview-ai-mvp
+    env: node
+    rootDir: apps/career-overview
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        value: deepseek-v4-flash
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: AI_TIMEOUT_MS
+        value: 120000
+      - key: PROFILE_MAX_TOKENS
+        value: 1100
+      - key: OVERVIEW_MAX_TOKENS
+        value: 900
+      - key: MODULE_MAX_TOKENS
+        value: 1400
+      - key: CHAT_MAX_TOKENS
+        value: 900
+      - key: JSON_REPAIR_MAX_TOKENS
+        value: 1200
+      - key: MAX_RESUME_TEXT_CHARS
+        value: 12000
+      - key: MAX_PROFILE_RESUME_TEXT_CHARS
+        value: 8000
+      - key: MAX_PROFILE_JSON_CHARS
+        value: 3500
+      - key: MAX_MODULE_INPUT_CHARS
+        value: 1000
+      - key: MAX_FILE_BYTES
+        value: 6000000
+      - key: MAX_BODY_BYTES
+        value: 12000000

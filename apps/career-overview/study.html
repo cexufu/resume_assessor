@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>留学与专业推荐</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-module-type="study">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">学</span>
+          <div>
+            <h1>留学与专业推荐</h1>
+            <p>基于总览页的 career_profile 单独分析专业和申请方向</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="ghost-link" href="./index.html">返回总览</a>
+          <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
+        </div>
+      </header>
+
+      <main class="workspace module-workspace">
+        <section class="intake-panel" aria-label="留学专业补充信息">
+          <div class="panel-heading">
+            <span class="step-badge">02</span>
+            <div>
+              <h2>补充申请条件</h2>
+              <p>这里只生成留学和专业建议，不推荐具体学校排名</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>目标国家/地区</span>
+            <input id="studyCountryInput" type="text" maxlength="80" placeholder="例如：英国、香港、新加坡" />
+          </label>
+          <label class="field">
+            <span>预算</span>
+            <input id="studyBudgetInput" type="text" maxlength="80" placeholder="例如：总预算 40 万" />
+          </label>
+          <label class="field">
+            <span>GPA/均分</span>
+            <input id="gpaInput" type="text" maxlength="80" placeholder="例如：85/100 或 3.5/4" />
+          </label>
+          <label class="field">
+            <span>语言成绩</span>
+            <input id="languageScoreInput" type="text" maxlength="80" placeholder="例如：雅思 7，托福 100" />
+          </label>
+          <label class="field">
+            <span>补充问题</span>
+            <textarea id="moduleQuestionInput" class="compact-textarea" maxlength="800" placeholder="例如：我适合申请商业分析还是数据科学？"></textarea>
+          </label>
+
+          <div class="button-row">
+            <button class="primary-button" id="runModuleBtn" type="button">生成深度分析</button>
+          </div>
+        </section>
+
+        <section class="report-panel" aria-label="留学专业分析结果">
+          <div class="report-toolbar">
+            <div>
+              <span class="eyebrow">子页面</span>
+              <h2 id="moduleTitle">留学与专业推荐</h2>
+            </div>
+            <button class="ghost-button" id="exportBtn" type="button">导出 JSON</button>
+          </div>
+          <section class="result-section">
+            <div class="section-title">
+              <span>档</span>
+              <h3>已读取的职业画像</h3>
+            </div>
+            <div class="profile-summary" id="profileSummary"></div>
+          </section>
+          <section class="module-output" id="moduleOutput"></section>
+        </section>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script src="./ai-client.js"></script>
+    <script src="./module-page.js"></script>
+  </body>
+</html>
