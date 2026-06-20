@@ -25,6 +25,11 @@ function qs(selector) {
   return document.querySelector(selector);
 }
 
+function setText(selector, value) {
+  const element = qs(selector);
+  if (element) element.textContent = value;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -47,6 +52,7 @@ function normalizeArray(items, length) {
 
 function showToast(message) {
   const toast = qs("#toast");
+  if (!toast) return;
   toast.textContent = message;
   toast.classList.add("show");
   window.clearTimeout(showToast.timer);
@@ -64,9 +70,12 @@ function loadAnalysis() {
 
 function setBusy(isBusy) {
   state.isAnalyzing = isBusy;
-  qs("#runModuleBtn").disabled = isBusy || !state.analysis?.careerProfile;
-  qs("#runModuleBtn").textContent = isBusy ? "生成中..." : "生成深度分析";
-  qs("#moduleStatus").textContent = state.analysis?.careerProfile ? (isBusy ? "正在分析" : "可生成") : "缺少画像";
+  const runButton = qs("#runModuleBtn");
+  if (runButton) {
+    runButton.disabled = isBusy || !state.analysis?.careerProfile;
+    runButton.textContent = isBusy ? "生成中..." : "生成深度分析";
+  }
+  setText("#moduleStatus", state.analysis?.careerProfile ? (isBusy ? "正在分析" : "可生成") : "缺少画像");
 }
 
 function renderProfileSummary() {
