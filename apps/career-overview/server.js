@@ -32,8 +32,8 @@ const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 120000);
 const PROFILE_MAX_TOKENS = Number(process.env.PROFILE_MAX_TOKENS || 1100);
-const OVERVIEW_MAX_TOKENS = Number(process.env.OVERVIEW_MAX_TOKENS || 900);
-const MODULE_MAX_TOKENS = Number(process.env.MODULE_MAX_TOKENS || 1400);
+const OVERVIEW_MAX_TOKENS = Number(process.env.OVERVIEW_MAX_TOKENS || 1100);
+const MODULE_MAX_TOKENS = Number(process.env.MODULE_MAX_TOKENS || 1600);
 const CHAT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS || 900);
 const JSON_REPAIR_MAX_TOKENS = Number(process.env.JSON_REPAIR_MAX_TOKENS || 1200);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 12_000_000);
@@ -86,16 +86,21 @@ const overviewSystemPrompt = [
   "你是克制、专业的职业发展总览分析器。",
   "你只基于 career_profile 生成总览，不读取原始简历。",
   "总览用于首页，必须短、清楚、可引导用户进入深度模块。",
+  "语气要先接住用户，不做廉价夸奖；表达为：你不是没有可能，只是需要看清已有资产、缺口和下一步。",
+  "不要把职业未来说成唯一答案，要帮助用户看到 1-2 个新的、但仍基于简历证据的可能性。",
   jsonOnlyContract,
 ].join("\n");
 
 const overviewJsonContract = [
-  "JSON 顶层字段必须为：peerScore, abilityFields, suitableDirections, shortcomings, improvementAdvice, moduleRecommendations。",
+  "JSON 顶层字段必须为：comfortIntro, peerScore, abilityFields, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
   "peerScore：字段 score, explanation。score 为 0-10。",
   "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。",
   "suitableDirections：3 项，每项字段 title, explanation。",
+  "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性。",
   "shortcomings：字段 summary, items。items 最多 3 条。",
   "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice。",
+  "comfortIntro：开篇安慰总起，1-2 句，必须具体、不空泛。",
+  "closingEncouragement：结尾安慰，1 句，强调可以从最小行动开始。",
   "moduleRecommendations：3 项，每项字段 module, reason, suggestedQuestion。module 只能是 career, study, ability。",
   "所有文本字段尽量不超过 80 个中文字符。",
 ].join("\n");
@@ -105,6 +110,7 @@ const moduleSystemPrompts = {
     "你是职业方向分析器。",
     "你只基于 career_profile 和用户补充问题分析职业方向。",
     "重点回答适合什么岗位、为什么、风险是什么、下一步怎么做。",
+    "补充 1-2 个轻量路径组合和可能性发现，帮助用户看到不止一种走法，但不要做成重报告。",
     jsonOnlyContract,
   ].join("\n"),
   study: [
@@ -112,41 +118,49 @@ const moduleSystemPrompts = {
     "你只基于 career_profile 和用户补充问题分析专业/留学方向。",
     "如缺少 GPA、语言成绩、预算、国家地区等信息，要明确提示信息不足。",
     "不要虚构具体学校、项目排名或录取概率。",
+    "补充 1-2 个轻量路径组合和可能性发现，帮助用户看到专业/留学选择背后的更多连接方式。",
     jsonOnlyContract,
   ].join("\n"),
   ability: [
     "你是能力地图分析器。",
     "你只基于 career_profile 和用户补充问题生成能力结构、短板和训练任务。",
     "重点是可迁移能力、当前等级、下一阶段任务。",
+    "补充 1-2 个轻量路径组合和可能性发现，帮助用户看到能力还能迁移到哪些新场景。",
     jsonOnlyContract,
   ].join("\n"),
 };
 
 const moduleJsonContracts = {
   career: [
-    "JSON 顶层字段必须为：summary, directions, risks, keywords, actionPlan, missingInformation。",
+    "JSON 顶层字段必须为：summary, directions, risks, keywords, possibilityNotes, pathCombinations, actionPlan, missingInformation。",
     "summary 字段：oneLine, bestFit。",
     "directions 3-5 项，每项字段：title, matchScore, evidence, risk, firstStep。",
     "risks 最多 5 条。",
     "keywords 最多 12 个岗位或搜索关键词。",
+    "possibilityNotes 最多 2 项，每项字段：title, reason, firstTry。",
+    "pathCombinations 最多 2 项，每项字段：name, focus, nextStep。",
     "actionPlan 字段：days30, days60, days90，每个字段最多 3 条。",
     "missingInformation 最多 5 条。",
   ].join("\n"),
   study: [
-    "JSON 顶层字段必须为：summary, recommendedMajors, notRecommended, applicationGaps, careerLink, nextSteps, missingInformation。",
+    "JSON 顶层字段必须为：summary, recommendedMajors, notRecommended, possibilityNotes, pathCombinations, applicationGaps, careerLink, nextSteps, missingInformation。",
     "summary 字段：oneLine, strategy。",
     "recommendedMajors 3-5 项，每项字段：name, matchScore, evidence, careerPath, risk。",
     "notRecommended 最多 3 项，每项字段：name, reason。",
+    "possibilityNotes 最多 2 项，每项字段：title, reason, firstTry。",
+    "pathCombinations 最多 2 项，每项字段：name, focus, nextStep。",
     "applicationGaps 最多 5 条。",
     "careerLink 最多 5 条，说明专业和职业路径如何连接。",
     "nextSteps 最多 6 条。",
     "missingInformation 最多 6 条。",
   ].join("\n"),
   ability: [
-    "JSON 顶层字段必须为：summary, abilityRadar, transferableAbilities, bottlenecks, trainingTasks, nextMilestone, missingInformation。",
+    "JSON 顶层字段必须为：summary, abilityRadar, transferableAbilities, possibilityNotes, pathCombinations, bottlenecks, trainingTasks, nextMilestone, missingInformation。",
     "summary 字段：oneLine, typeLabel。",
     "abilityRadar 6 项，每项字段：name, score, evidence。score 为 0-10。",
     "transferableAbilities 最多 5 项，每项字段：name, usableScenes。",
+    "possibilityNotes 最多 2 项，每项字段：title, reason, firstTry。",
+    "pathCombinations 最多 2 项，每项字段：name, focus, nextStep。",
     "bottlenecks 最多 5 条。",
     "trainingTasks 最多 6 项，每项字段：task, purpose, timeCost。",
     "nextMilestone 字段：title, criteria。",

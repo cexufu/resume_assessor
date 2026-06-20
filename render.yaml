@@ -19,9 +19,9 @@ services:
       - key: PROFILE_MAX_TOKENS
         value: 1100
       - key: OVERVIEW_MAX_TOKENS
-        value: 900
+        value: 1100
       - key: MODULE_MAX_TOKENS
-        value: 1400
+        value: 1600
       - key: CHAT_MAX_TOKENS
         value: 900
       - key: JSON_REPAIR_MAX_TOKENS

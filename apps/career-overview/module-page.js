@@ -165,6 +165,23 @@ function renderModuleReport(report) {
     : `<pre>${escapeHtml(JSON.stringify(report, null, 2))}</pre>`;
 }
 
+function renderExplorationBlocks(report) {
+  const possibilities = Array.isArray(report.possibilityNotes) ? report.possibilityNotes.slice(0, 2) : [];
+  const paths = Array.isArray(report.pathCombinations) ? report.pathCombinations.slice(0, 2) : [];
+  if (!possibilities.length && !paths.length) return "";
+
+  return `
+    <section class="module-output-section">
+      <h4>可能性发现</h4>
+      ${listHtml(possibilities, (item) => `${item.title || "新可能性"}：${item.reason || item.firstTry || "信息不足"}`)}
+    </section>
+    <section class="module-output-section">
+      <h4>轻量路径组合</h4>
+      ${listHtml(paths, (item) => `${item.name || "路径"}：${item.focus || ""} ${item.nextStep || ""}`)}
+    </section>
+  `;
+}
+
 function renderCareerModule(report) {
   const summary = report.summary || {};
   const directions = Array.isArray(report.directions) ? report.directions.slice(0, 5) : [];
@@ -200,6 +217,7 @@ function renderCareerModule(report) {
         <h4>岗位关键词</h4>
         ${tagRow(report.keywords)}
       </section>
+      ${renderExplorationBlocks(report)}
       <section class="module-output-section">
         <h4>行动计划</h4>
         ${listHtml([...(actionPlan.days30 || []), ...(actionPlan.days60 || []), ...(actionPlan.days90 || [])])}
@@ -246,6 +264,7 @@ function renderStudyModule(report) {
         <h4>不建议优先选择</h4>
         ${listHtml(report.notRecommended, (item) => `${item.name || "方向"}：${item.reason || "信息不足"}`)}
       </section>
+      ${renderExplorationBlocks(report)}
       <section class="module-output-section">
         <h4>申请短板和下一步</h4>
         ${listHtml([...(report.applicationGaps || []), ...(report.nextSteps || [])])}
@@ -286,6 +305,7 @@ function renderAbilityModule(report) {
         <h4>可迁移能力</h4>
         ${listHtml(report.transferableAbilities, (item) => `${item.name || "能力"}：${item.usableScenes || "信息不足"}`)}
       </section>
+      ${renderExplorationBlocks(report)}
       <section class="module-output-section">
         <h4>瓶颈和训练任务</h4>
         ${listHtml([...(report.bottlenecks || []), ...(report.trainingTasks || []).map((item) => `${item.task || "训练任务"}：${item.purpose || ""} ${item.timeCost || ""}`)])}

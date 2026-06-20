@@ -250,12 +250,23 @@ function renderReport(report) {
   qs("#reportContent").hidden = false;
   qs("#exportBtn").disabled = false;
 
+  renderComfort(report);
   renderPeerScore(report.peerScore || {});
   renderAbilityFields(report.abilityFields);
   renderDirections(report.suitableDirections);
+  renderNewPossibilities(report.newPossibilities);
   renderShortcomings(report.shortcomings || {});
   renderImprovementAdvice(report.improvementAdvice || {});
   renderModuleRecommendations(report.moduleRecommendations);
+}
+
+function renderComfort(report) {
+  qs("#comfortIntro").textContent = fallbackText(
+    report.comfortIntro || "你不是没有方向，只是还需要把已有经历重新翻译成更清楚的可能性。"
+  );
+  qs("#closingEncouragement").textContent = fallbackText(
+    report.closingEncouragement || "先不用急着一次选对，把最小的一步走出来，方向会在行动里变得更清楚。"
+  );
 }
 
 function renderPeerScore(peerScore) {
@@ -289,6 +300,27 @@ function renderDirections(items) {
       <span class="card-index">${index + 1}</span>
       <h4>${escapeHtml(fallbackText(item.title))}</h4>
       <p>${escapeHtml(fallbackText(item.explanation))}</p>
+    </article>
+  `).join("");
+}
+
+function renderNewPossibilities(items) {
+  const safeItems = Array.isArray(items) && items.length
+    ? items.slice(0, 2)
+    : [
+      { title: "相邻迁移方向", reason: "把已有经历换一种表达，可能能连接到更宽的岗位场景。", firstTry: "选一个目标岗位，整理 3 条能对应岗位要求的经历证据。" },
+      { title: "能力再包装方向", reason: "你已有的能力未必只能服务于原路径，也可能成为跨领域入口。", firstTry: "把一段经历改写成问题、行动、结果三句话。" },
+    ];
+
+  qs("#newPossibilities").innerHTML = safeItems.map((item, index) => `
+    <article class="result-card direction-card possibility-card">
+      <span class="card-index">${index + 1}</span>
+      <h4>${escapeHtml(fallbackText(item.title))}</h4>
+      <p>${escapeHtml(fallbackText(item.reason))}</p>
+      <dl>
+        <dt>可以先试</dt>
+        <dd>${escapeHtml(fallbackText(item.firstTry))}</dd>
+      </dl>
     </article>
   `).join("");
 }
