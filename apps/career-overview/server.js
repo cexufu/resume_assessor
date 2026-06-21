@@ -475,14 +475,103 @@ async function createCareerProfile(payload, resumeText, file) {
   }));
 }
 
+function firstText(values, fallback = "信息不足") {
+  for (const value of values) {
+    if (!value) continue;
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  return fallback;
+}
+
+function firstItem(items) {
+  return Array.isArray(items) && items.length ? items[0] || {} : {};
+}
+
+function ensureOverviewFields(report, careerProfile) {
+  const safeReport = report && typeof report === "object" ? report : {};
+  const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
+  const weaknesses = Array.isArray(careerProfile?.weaknesses) ? careerProfile.weaknesses : [];
+  const evidence = Array.isArray(careerProfile?.evidence) ? careerProfile.evidence : [];
+  const expressionProblems = Array.isArray(careerProfile?.expressionProblems) ? careerProfile.expressionProblems : [];
+  const abilitySignals = Array.isArray(careerProfile?.abilitySignals) ? careerProfile.abilitySignals : [];
+  const careerSignals = Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : [];
+
+  if (!safeReport.capabilityDiagnosis || typeof safeReport.capabilityDiagnosis !== "object") {
+    const topStrength = firstItem(strengths);
+    safeReport.capabilityDiagnosis = {
+      coreAbility: firstText([topStrength.name, abilitySignals[0], "可迁移能力仍需从经历中提炼"]),
+      evidence: firstText([topStrength.evidence, evidence[0], "当前简历证据不足，需要补充具体任务、产出和结果"]),
+      expressionGap: firstText([expressionProblems[0], firstItem(weaknesses).evidence, "需要把经历写成能力证据，而不是只列参与过什么"]),
+      nextProof: "补充一个具体案例：你负责什么、怎么判断、怎么设计动作、最后带来什么变化。",
+    };
+  }
+
+  if (!safeReport.perspectiveUpgrade || typeof safeReport.perspectiveUpgrade !== "object") {
+    safeReport.perspectiveUpgrade = {
+      currentLayer: "当前更像执行到战术之间：已经有经历和动作，但需要把背后的目标、判断和取舍说清楚。",
+      nextLayer: "下一层视角是从完成任务升级为设计打法：解释为什么做、如何布局、如何验证结果。",
+      example: firstText([
+        careerSignals[0] ? `可以把“${careerSignals[0]}”继续追问成目标、受众、动作和结果。` : "",
+        "例如不要只写做过活动，而要说明这次活动想证明什么、影响谁、为什么这样设计。",
+      ]),
+    };
+  }
+
+  return safeReport;
+}
+
+function inferStrategicLevel(careerProfile) {
+  const text = JSON.stringify(careerProfile || {});
+  if (/(策略|战略|布局|管理|负责人|主导|设计|规划|增长|模型|研究)/.test(text)) return "tactical";
+  if (/(执行|助理|协助|整理|录入|参与|志愿|实习)/.test(text)) return "execution";
+  return "execution";
+}
+
+function ensureModuleFields(moduleType, report, careerProfile, moduleInput) {
+  const safeReport = report && typeof report === "object" ? report : {};
+  const level = inferStrategicLevel(careerProfile);
+  const evidence = Array.isArray(careerProfile?.evidence) ? careerProfile.evidence : [];
+  const missing = Array.isArray(careerProfile?.missingInformation) ? careerProfile.missingInformation : [];
+  const target = firstText([
+    moduleInput?.targetRole,
+    moduleInput?.targetIndustry,
+    moduleInput?.extraQuestion,
+    careerProfile?.basic?.targetDirection,
+    moduleType,
+  ]);
+
+  if (!safeReport.strategicLayer || typeof safeReport.strategicLayer !== "object") {
+    safeReport.strategicLayer = {
+      currentLevel: level,
+      why: firstText([
+        evidence[0] ? `当前证据主要来自：${evidence[0]}。这能说明已有行动和初步判断，但还需要提炼方法。` : "",
+        "当前简历更能证明执行经历，尚未充分证明战术设计或战略取舍。",
+      ]),
+      upgradeMove: "下一步把一个经历拆成：目标、对象、判断、动作、结果、复盘。这样才从“做过”升级为“会设计”。",
+    };
+  }
+
+  if (!Array.isArray(safeReport.followUpQuestions) || !safeReport.followUpQuestions.length) {
+    safeReport.followUpQuestions = [
+      `围绕${target}，你最想让我继续判断的是岗位匹配、能力缺口，还是下一步行动？`,
+      "你能补充一个最有代表性的项目吗：你负责什么、遇到什么困难、最后结果如何？",
+      missing[0] ? `目前最缺的信息是“${missing[0]}”，你愿意先补这一项吗？` : "你希望我下一步帮你把这段经历改写成简历表达吗？",
+    ];
+  }
+
+  return safeReport;
+}
+
 async function createOverviewReport(careerProfile) {
-  return callDeepSeekJson(buildJsonCompletionBody({
+  const report = await callDeepSeekJson(buildJsonCompletionBody({
     systemPrompt: overviewSystemPrompt,
     contract: overviewJsonContract,
     userPrompt: buildOverviewPrompt(careerProfile),
     maxTokens: OVERVIEW_MAX_TOKENS,
     temperature: 0.2,
   }));
+  return ensureOverviewFields(report, careerProfile);
 }
 
 async function createModuleReport(moduleType, careerProfile, moduleInput) {
@@ -490,13 +579,14 @@ async function createModuleReport(moduleType, careerProfile, moduleInput) {
     throw new Error("Unsupported analysis module.");
   }
 
-  return callDeepSeekJson(buildJsonCompletionBody({
+  const report = await callDeepSeekJson(buildJsonCompletionBody({
     systemPrompt: moduleSystemPrompts[moduleType],
     contract: moduleJsonContracts[moduleType],
     userPrompt: buildModulePrompt(moduleType, careerProfile, moduleInput),
     maxTokens: MODULE_MAX_TOKENS,
     temperature: 0.2,
   }));
+  return ensureModuleFields(moduleType, report, careerProfile, moduleInput);
 }
 
 async function streamDeepSeekChat(payload, res) {
