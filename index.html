@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>职业发展总览</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">读</span>
+          <div>
+            <h1>职业发展总览</h1>
+            <p>先压缩职业画像，再分模块分析方向、留学和能力</p>
+          </div>
+        </div>
+        <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
+      </header>
+
+      <main class="workspace">
+        <section class="intake-panel" aria-label="简历输入">
+          <div class="panel-heading">
+            <span class="step-badge">01</span>
+            <div>
+              <h2>建立职业画像</h2>
+              <p>总览先做短分析，深度内容分模块生成</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>年龄</span>
+            <input id="ageInput" type="number" min="16" max="80" inputmode="numeric" placeholder="例如：31" />
+          </label>
+
+          <label class="field">
+            <span>当前目标</span>
+            <select id="targetGoalInput">
+              <option value="">请选择</option>
+              <option value="找实习">找实习</option>
+              <option value="找工作">找工作</option>
+              <option value="转行">转行</option>
+              <option value="留学申请">留学申请</option>
+              <option value="升学/专业选择">升学/专业选择</option>
+              <option value="不确定方向">不确定方向</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>目标方向</span>
+            <input id="targetDirectionInput" type="text" maxlength="120" placeholder="例如：数据分析、品牌、公关、商科留学" />
+          </label>
+
+          <label class="field">
+            <span>当前最焦虑的问题</span>
+            <textarea id="anxietyInput" class="compact-textarea" maxlength="220" placeholder="例如：不知道自己适合什么岗位，担心简历没有竞争力。"></textarea>
+          </label>
+
+          <label class="file-box" for="resumeFile">
+            <input id="resumeFile" type="file" accept=".txt,.md,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+            <strong>上传简历</strong>
+            <span id="fileStatus">支持 TXT、MD、PDF、DOCX。</span>
+          </label>
+
+          <label class="field resume-field">
+            <span>简历全文</span>
+            <textarea id="resumeText" spellcheck="false" placeholder="把简历全文粘贴到这里。"></textarea>
+          </label>
+
+          <div class="button-row">
+            <button class="primary-button" id="analyzeBtn" type="button">开始分析</button>
+            <button class="ghost-button" id="sampleBtn" type="button">填入样例</button>
+            <button class="ghost-button" id="clearBtn" type="button">清空</button>
+          </div>
+        </section>
+
+        <section class="report-panel" aria-label="分析结果">
+          <div class="report-toolbar">
+            <div>
+              <span class="eyebrow">AI 输出</span>
+              <h2>职业发展总览</h2>
+            </div>
+            <button class="ghost-button" id="exportBtn" type="button" disabled>导出 JSON</button>
+          </div>
+
+          <div class="report-empty" id="emptyState">
+            <strong>等待分析</strong>
+            <p>系统会先把简历压缩成 career_profile，再生成一份短总览，减少重复 token 消耗。</p>
+          </div>
+
+          <section class="result-section module-entry-section">
+            <div class="section-title">
+              <span>页</span>
+              <h3>深度分析子页面</h3>
+            </div>
+            <div class="card-grid three">
+              <article class="result-card direction-card">
+                <span class="card-index">1</span>
+                <h4>职业方向分析</h4>
+                <p>分析适合岗位、岗位风险、搜索关键词和 30/60/90 天行动计划。</p>
+                <a class="inline-link" href="./career.html">进入页面</a>
+              </article>
+              <article class="result-card direction-card">
+                <span class="card-index">2</span>
+                <h4>留学与专业推荐</h4>
+                <p>分析专业方向、申请短板、职业路径连接和下一步准备。</p>
+                <a class="inline-link" href="./study.html">进入页面</a>
+              </article>
+              <article class="result-card direction-card">
+                <span class="card-index">3</span>
+                <h4>能力地图</h4>
+                <p>分析可迁移能力、能力雷达、瓶颈和训练任务。</p>
+                <a class="inline-link" href="./ability.html">进入页面</a>
+              </article>
+            </div>
+          </section>
+
+          <div class="report-content" id="reportContent" hidden>
+            <section class="result-section comfort-section">
+              <div class="section-title">
+                <span>0</span>
+                <h3>先把你接住</h3>
+              </div>
+              <p class="lead-text comfort-text" id="comfortIntro">--</p>
+            </section>
+            <section class="result-section">
+              <div class="section-title">
+                <span>1</span>
+                <h3>能力诊断：经历背后真正有用的东西</h3>
+              </div>
+              <div class="advice-grid capability-grid">
+                <article>
+                  <span>核心能力</span>
+                  <p id="coreAbility">--</p>
+                </article>
+                <article>
+                  <span>简历证据</span>
+                  <p id="abilityEvidence">--</p>
+                </article>
+                <article>
+                  <span>表达缺口</span>
+                  <p id="expressionGap">--</p>
+                </article>
+                <article>
+                  <span>下一步证明</span>
+                  <p id="nextProof">--</p>
+                </article>
+              </div>
+            </section>
+            <section class="result-section score-section">
+              <div class="section-title">
+                <span>2</span>
+                <h3>同龄进展评分</h3>
+              </div>
+              <div class="score-layout">
+                <div class="score-number">
+                  <strong id="scoreValue">--</strong>
+                  <span>/ 10</span>
+                </div>
+                <div class="score-detail">
+                  <div class="score-bar" aria-hidden="true"><span id="scoreBar"></span></div>
+                  <p id="peerExplanation">--</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="result-section">
+              <div class="section-title">
+                <span>3</span>
+                <h3>关键能力领域</h3>
+              </div>
+              <div class="card-grid three" id="abilityFields"></div>
+            </section>
+            <section class="result-section">
+              <div class="section-title">
+                <span>4</span>
+                <h3>视野升级：从做事到看懂布局</h3>
+              </div>
+              <div class="advice-grid">
+                <article>
+                  <span>当前层级</span>
+                  <p id="currentLayer">--</p>
+                </article>
+                <article>
+                  <span>下一层视角</span>
+                  <p id="nextLayer">--</p>
+                </article>
+                <article class="wide">
+                  <span>例子</span>
+                  <p id="perspectiveExample">--</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="result-section">
+              <div class="section-title">
+                <span>5</span>
+                <h3>适合工作方向</h3>
+              </div>
+              <div class="card-grid three" id="directionList"></div>
+            </section>
+
+            <section class="result-section">
+              <div class="section-title">
+                <span>6</span>
+                <h3>你可能没想到的新可能性</h3>
+              </div>
+              <div class="card-grid two" id="newPossibilities"></div>
+            </section>
+
+            <section class="result-section">
+              <div class="section-title">
+                <span>7</span>
+                <h3>潜在短板</h3>
+              </div>
+              <p class="lead-text" id="shortcomingsSummary">--</p>
+              <ul class="bullet-list" id="shortcomingsList"></ul>
+            </section>
+
+            <section class="result-section">
+              <div class="section-title">
+                <span>8</span>
+                <h3>最应补齐</h3>
+              </div>
+              <div class="advice-grid">
+                <article>
+                  <span>能力</span>
+                  <p id="neededAbility">--</p>
+                </article>
+                <article>
+                  <span>经历</span>
+                  <p id="missingExperience">--</p>
+                </article>
+                <article class="wide">
+                  <span>建议</span>
+                  <p id="shortAdvice">--</p>
+                </article>
+              </div>
+              <p class="lead-text closing-text" id="closingEncouragement">--</p>
+            </section>
+
+            <section class="result-section" id="moduleRecommendationSection">
+              <div class="section-title">
+                <span>9</span>
+                <h3>建议深挖模块</h3>
+              </div>
+              <div class="card-grid three" id="moduleRecommendations"></div>
+            </section>
+          </div>
+
+          <section class="chat-panel" aria-label="简历追问">
+            <div class="chat-heading">
+              <div>
+                <span class="eyebrow">流式追问</span>
+                <h3>基于简历继续问</h3>
+              </div>
+              <span class="chat-status" id="chatStatus">先完成分析</span>
+            </div>
+
+            <div class="prompt-chips" id="promptChips">
+              <button type="button" data-question="这个人最适合往哪个方向深挖？">适合深挖方向</button>
+              <button type="button" data-question="如果我要面试他，最应该追问哪三个问题？">面试追问</button>
+              <button type="button" data-question="这份简历最大的不确定性在哪里？">不确定性</button>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+              <div class="chat-placeholder">完成上方分析后，可以在这里追问细节。</div>
+            </div>
+
+            <form class="chat-form" id="chatForm">
+              <textarea id="chatInput" rows="2" placeholder="例如：如果他去做舆情策略，短板是什么？" disabled></textarea>
+              <button class="primary-button" id="chatSendBtn" type="submit" disabled>发送</button>
+            </form>
+          </section>
+        </section>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <script src="./ai-client.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
