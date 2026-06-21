@@ -182,6 +182,38 @@ function renderExplorationBlocks(report) {
   `;
 }
 
+function renderStrategicLayer(report) {
+  const layer = report.strategicLayer || {};
+  if (!layer.currentLevel && !layer.why && !layer.upgradeMove) return "";
+
+  const levelLabels = {
+    execution: "执行型",
+    tactical: "战术型",
+    strategic: "战略型",
+  };
+
+  return `
+    <section class="module-output-section">
+      <h4>层级判断</h4>
+      <p>${escapeHtml(levelLabels[layer.currentLevel] || fallbackText(layer.currentLevel))}</p>
+      <p>${escapeHtml(fallbackText(layer.why))}</p>
+      <p>${escapeHtml(fallbackText(layer.upgradeMove))}</p>
+    </section>
+  `;
+}
+
+function renderFollowUpQuestions(report) {
+  const questions = Array.isArray(report.followUpQuestions) ? report.followUpQuestions.slice(0, 3) : [];
+  if (!questions.length) return "";
+
+  return `
+    <section class="module-output-section">
+      <h4>可以继续追问</h4>
+      ${listHtml(questions)}
+    </section>
+  `;
+}
+
 function renderCareerModule(report) {
   const summary = report.summary || {};
   const directions = Array.isArray(report.directions) ? report.directions.slice(0, 5) : [];
@@ -193,6 +225,7 @@ function renderCareerModule(report) {
         <p>${escapeHtml(fallbackText(summary.oneLine))}</p>
         <p>${escapeHtml(fallbackText(summary.bestFit))}</p>
       </section>
+      ${renderStrategicLayer(report)}
       <section class="module-output-section">
         <h4>推荐方向</h4>
         <div class="card-grid three">
@@ -226,6 +259,7 @@ function renderCareerModule(report) {
         <h4>仍缺信息</h4>
         ${listHtml(report.missingInformation)}
       </section>
+      ${renderFollowUpQuestions(report)}
     </div>
   `;
 }
@@ -240,6 +274,7 @@ function renderStudyModule(report) {
         <p>${escapeHtml(fallbackText(summary.oneLine))}</p>
         <p>${escapeHtml(fallbackText(summary.strategy))}</p>
       </section>
+      ${renderStrategicLayer(report)}
       <section class="module-output-section">
         <h4>推荐专业方向</h4>
         <div class="card-grid three">
@@ -273,6 +308,7 @@ function renderStudyModule(report) {
         <h4>仍缺信息</h4>
         ${listHtml(report.missingInformation)}
       </section>
+      ${renderFollowUpQuestions(report)}
     </div>
   `;
 }
@@ -288,6 +324,7 @@ function renderAbilityModule(report) {
         <p>${escapeHtml(fallbackText(summary.oneLine))}</p>
         <p>类型标签：${escapeHtml(fallbackText(summary.typeLabel))}</p>
       </section>
+      ${renderStrategicLayer(report)}
       <section class="module-output-section">
         <h4>能力雷达</h4>
         <div class="card-grid three">
@@ -315,6 +352,7 @@ function renderAbilityModule(report) {
         <p>${escapeHtml(fallbackText(milestone.title))}</p>
         <p>${escapeHtml(fallbackText(milestone.criteria))}</p>
       </section>
+      ${renderFollowUpQuestions(report)}
     </div>
   `;
 }

@@ -251,8 +251,10 @@ function renderReport(report) {
   qs("#exportBtn").disabled = false;
 
   renderComfort(report);
+  renderCapabilityDiagnosis(report.capabilityDiagnosis || {});
   renderPeerScore(report.peerScore || {});
   renderAbilityFields(report.abilityFields);
+  renderPerspectiveUpgrade(report.perspectiveUpgrade || {});
   renderDirections(report.suitableDirections);
   renderNewPossibilities(report.newPossibilities);
   renderShortcomings(report.shortcomings || {});
@@ -267,6 +269,13 @@ function renderComfort(report) {
   qs("#closingEncouragement").textContent = fallbackText(
     report.closingEncouragement || "先不用急着一次选对，把最小的一步走出来，方向会在行动里变得更清楚。"
   );
+}
+
+function renderCapabilityDiagnosis(diagnosis) {
+  qs("#coreAbility").textContent = fallbackText(diagnosis.coreAbility);
+  qs("#abilityEvidence").textContent = fallbackText(diagnosis.evidence);
+  qs("#expressionGap").textContent = fallbackText(diagnosis.expressionGap);
+  qs("#nextProof").textContent = fallbackText(diagnosis.nextProof);
 }
 
 function renderPeerScore(peerScore) {
@@ -291,6 +300,12 @@ function renderAbilityFields(items) {
       </dl>
     </article>
   `).join("");
+}
+
+function renderPerspectiveUpgrade(perspective) {
+  qs("#currentLayer").textContent = fallbackText(perspective.currentLayer);
+  qs("#nextLayer").textContent = fallbackText(perspective.nextLayer);
+  qs("#perspectiveExample").textContent = fallbackText(perspective.example);
 }
 
 function renderDirections(items) {
