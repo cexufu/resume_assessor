@@ -16,7 +16,10 @@ async function requestJson(url, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(data.error || `Request failed: ${response.status}`);
+    const error = new Error(data.error || `Request failed: ${response.status}`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
   }
 
   return data;
@@ -35,6 +38,14 @@ async function analyzeResume(payload) {
     method: "POST",
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(130_000),
+  });
+}
+
+async function extractResumeText(file) {
+  return requestJson("/api/extract-resume-text", {
+    method: "POST",
+    body: JSON.stringify({ file }),
+    signal: AbortSignal.timeout(45_000),
   });
 }
 
@@ -93,6 +104,7 @@ async function streamResumeChat(payload, onChunk) {
 window.ResumeInsightAPI = {
   getHealth,
   testAiConnection,
+  extractResumeText,
   analyzeResume,
   analyzeModule,
   streamResumeChat,

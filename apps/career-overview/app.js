@@ -7,6 +7,7 @@ const state = {
   chatHistory: [],
   isAnalyzing: false,
   isChatting: false,
+  loadingTimer: null,
 };
 
 const storageKey = "resume_insight_reader_draft";
@@ -42,6 +43,14 @@ function fallbackText(value) {
   return text || "信息不足，需补充简历证据";
 }
 
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "信息不足，需补充简历证据";
+}
+
 function showToast(message) {
   const toast = qs("#toast");
   toast.textContent = message;
@@ -50,10 +59,20 @@ function showToast(message) {
   showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2400);
 }
 
+function openIntakeModal() {
+  qs("#intakeModal").classList.add("open");
+}
+
+function closeIntakeModal() {
+  qs("#intakeModal").classList.remove("open");
+}
+
 function setBusy(isBusy) {
   state.isAnalyzing = isBusy;
   qs("#analyzeBtn").disabled = isBusy;
-  qs("#analyzeBtn").textContent = isBusy ? "生成画像中..." : "开始分析";
+  qs("#analyzeBtn").textContent = isBusy ? "正在载入..." : "Load My Life";
+  qs("#openIntakeBtn").disabled = isBusy;
+  qs("#closeIntakeBtn").disabled = isBusy;
 }
 
 function setChatBusy(isBusy) {
@@ -131,8 +150,25 @@ async function handleFileSelect(event) {
     type: file.type || "application/octet-stream",
     dataUrl,
   };
-  qs("#fileStatus").textContent = `已选择文件：${file.name}，点击分析后解析正文。`;
-  showToast("文件已选择");
+  qs("#fileStatus").textContent = `正在解析文件：${file.name}`;
+
+  try {
+    const result = await window.ResumeInsightAPI.extractResumeText(state.uploadedFile);
+    state.extractedResumeText = result.text || "";
+    if (!state.extractedResumeText) {
+      qs("#fileStatus").textContent = `没有从 ${file.name} 中解析到文本，可尝试粘贴正文。`;
+      showToast("没有解析到文本");
+      return;
+    }
+    qs("#resumeText").value = state.extractedResumeText;
+    state.uploadedFile = null;
+    qs("#fileStatus").textContent = `已解析：${file.name}，共 ${state.extractedResumeText.length} 个字符。`;
+    persistDraft();
+    showToast(getFileExtension(file) === ".pdf" ? "PDF 已解析" : "文件已解析");
+  } catch (error) {
+    qs("#fileStatus").textContent = `自动解析失败：${error.message}。点击分析时会再尝试服务端解析，或直接粘贴正文。`;
+    showToast("文件解析失败");
+  }
 }
 
 function readPayload() {
@@ -141,7 +177,9 @@ function readPayload() {
     file: state.uploadedFile,
     context: {
       age: qs("#ageInput").value.trim(),
+      region: qs("#regionInput").value.trim(),
       targetGoal: qs("#targetGoalInput").value.trim(),
+      currentThought: qs("#currentThoughtInput").value.trim(),
       targetDirection: qs("#targetDirectionInput").value.trim(),
       anxiety: qs("#anxietyInput").value.trim(),
     },
@@ -151,7 +189,9 @@ function readPayload() {
 function persistDraft() {
   const draft = {
     age: qs("#ageInput").value,
+    region: qs("#regionInput").value,
     targetGoal: qs("#targetGoalInput").value,
+    currentThought: qs("#currentThoughtInput").value,
     targetDirection: qs("#targetDirectionInput").value,
     anxiety: qs("#anxietyInput").value,
     resumeText: qs("#resumeText").value,
@@ -164,7 +204,9 @@ function restoreDraft() {
     const draft = JSON.parse(localStorage.getItem(storageKey) || "null");
     if (!draft) return;
     qs("#ageInput").value = draft.age || "";
+    qs("#regionInput").value = draft.region || "";
     qs("#targetGoalInput").value = draft.targetGoal || "";
+    qs("#currentThoughtInput").value = draft.currentThought || "";
     qs("#targetDirectionInput").value = draft.targetDirection || "";
     qs("#anxietyInput").value = draft.anxiety || "";
     qs("#resumeText").value = draft.resumeText || "";
@@ -188,12 +230,14 @@ async function refreshHealth() {
 async function analyze() {
   const payload = readPayload();
   if (!payload.resumeText && !payload.file) {
+    openIntakeModal();
     showToast("请先粘贴简历文本或上传简历文件");
     return;
   }
 
   try {
     setBusy(true);
+    closeIntakeModal();
     state.report = null;
     state.careerProfile = null;
     state.chatHistory = [];
@@ -215,23 +259,74 @@ async function analyze() {
     resetChatPanel();
     showToast("分析已生成");
   } catch (error) {
-    showErrorState(error.message);
+    if (error.data?.partial?.careerProfile) {
+      state.careerProfile = error.data.partial.careerProfile;
+      state.extractedResumeText = error.data.partial.extractedResumeText || payload.resumeText;
+      persistAnalysis({
+        isPartial: true,
+        error: error.message,
+      });
+      showPartialState(error.message);
+    } else {
+      showErrorState(error.message);
+    }
   } finally {
+    stopLoadingState();
     setBusy(false);
   }
 }
 
 function showLoadingState() {
+  stopLoadingState();
   qs("#reportContent").hidden = true;
+  qs("#moduleEntrySection").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
-    <strong>正在分析</strong>
-    <p>DeepSeek 正在先压缩 career_profile，再生成短总览。深度模块会单独调用。</p>
+    <div class="loading-card">
+      <strong id="loadingTitle">正在读取你的经历</strong>
+      <p id="loadingMessage">第 1 步：把简历和补充信息压缩成 career_profile，后续页面会复用这份画像。</p>
+      <div class="loading-track" aria-hidden="true"><span id="loadingBar"></span></div>
+      <ol class="loading-steps">
+        <li id="loadingStepProfile" class="active">压缩职业画像</li>
+        <li id="loadingStepOverview">生成短总览</li>
+        <li id="loadingStepModules">准备深度页面</li>
+      </ol>
+    </div>
   `;
+  const startedAt = Date.now();
+  const update = () => {
+    const elapsed = Date.now() - startedAt;
+    const bar = qs("#loadingBar");
+    if (!bar) return;
+    const progress = Math.min(88, 18 + Math.floor(elapsed / 900));
+    bar.style.width = `${progress}%`;
+    if (elapsed > 12_000) {
+      qs("#loadingTitle").textContent = "正在生成你的职业坐标";
+      qs("#loadingMessage").textContent = "第 2 步：只基于压缩画像生成首页短总览，不重复读取完整简历。";
+      qs("#loadingStepProfile").classList.add("done");
+      qs("#loadingStepOverview").classList.add("active");
+    }
+    if (elapsed > 30_000) {
+      qs("#loadingTitle").textContent = "正在收束结果";
+      qs("#loadingMessage").textContent = "模型输出较慢时请保持页面打开；如果总览失败，已生成的画像会尽量保留下来。";
+      qs("#loadingStepOverview").classList.add("done");
+      qs("#loadingStepModules").classList.add("active");
+    }
+  };
+  update();
+  state.loadingTimer = window.setInterval(update, 900);
+}
+
+function stopLoadingState() {
+  if (state.loadingTimer) {
+    window.clearInterval(state.loadingTimer);
+    state.loadingTimer = null;
+  }
 }
 
 function showErrorState(message) {
   qs("#reportContent").hidden = true;
+  qs("#moduleEntrySection").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
     <strong>分析失败</strong>
@@ -242,24 +337,76 @@ function showErrorState(message) {
   state.careerProfile = null;
   state.chatHistory = [];
   setChatAvailable(false);
+  qs("#chatDock").classList.add("collapsed");
+  qs("#chatToggleBtn").textContent = "展开";
   showToast(message);
+}
+
+function showPartialState(message) {
+  qs("#reportContent").hidden = true;
+  qs("#moduleEntrySection").hidden = false;
+  qs("#emptyState").hidden = false;
+  qs("#emptyState").innerHTML = `
+    <strong>已保留职业画像，但总览生成失败</strong>
+    <p>${escapeHtml(message)}。你可以直接进入深度子页面，它们会复用已生成的 career_profile，不需要重新上传简历。</p>
+    <div class="recovery-actions">
+      <a class="primary-link" href="./career.html">去职业方向</a>
+      <a class="ghost-link" href="./study.html">去留学专业</a>
+      <a class="ghost-link" href="./ability.html">去能力地图</a>
+    </div>
+  `;
+  qs("#exportBtn").disabled = true;
+  state.report = null;
+  state.chatHistory = [];
+  setChatAvailable(false);
+  qs("#chatDock").classList.add("collapsed");
+  qs("#chatToggleBtn").textContent = "展开";
+  showToast("已保留职业画像");
 }
 
 function renderReport(report) {
   qs("#emptyState").hidden = true;
+  qs("#moduleEntrySection").hidden = false;
   qs("#reportContent").hidden = false;
   qs("#exportBtn").disabled = false;
 
+  renderIdentitySnapshot(report);
   renderComfort(report);
   renderCapabilityDiagnosis(report.capabilityDiagnosis || {});
   renderPeerScore(report.peerScore || {});
   renderAbilityFields(report.abilityFields);
   renderPerspectiveUpgrade(report.perspectiveUpgrade || {});
+  renderRouteCards(report.routeCards);
   renderDirections(report.suitableDirections);
   renderNewPossibilities(report.newPossibilities);
   renderShortcomings(report.shortcomings || {});
   renderImprovementAdvice(report.improvementAdvice || {});
   renderModuleRecommendations(report.moduleRecommendations);
+}
+
+function renderIdentitySnapshot(report) {
+  const profile = state.careerProfile || report.careerProfile || {};
+  const basic = profile.basic || {};
+  const snapshot = report.identitySnapshot || {};
+  const topStrength = Array.isArray(profile.strengths) ? profile.strengths[0] || {} : {};
+  const topWeakness = Array.isArray(profile.weaknesses) ? profile.weaknesses[0] || {} : {};
+  qs("#identityWho").textContent = firstText(
+    snapshot.who,
+    report.capabilityDiagnosis?.coreAbility,
+    topStrength.name ? `一个正在把“${topStrength.name}”转成职业资产的人` : "",
+    basic.major,
+  );
+  qs("#identityDestination").textContent = firstText(
+    snapshot.destination,
+    basic.targetDirection,
+    basic.targetGoal,
+    "先从可验证的小方向开始探索，而不是一次决定终身方向",
+  );
+  qs("#identityStage").textContent = firstText(
+    snapshot.stage,
+    topWeakness.name ? `已有一些证据，但“${topWeakness.name}”仍需要补齐` : "",
+    report.peerScore?.explanation,
+  );
 }
 
 function renderComfort(report) {
@@ -315,6 +462,37 @@ function renderDirections(items) {
       <span class="card-index">${index + 1}</span>
       <h4>${escapeHtml(fallbackText(item.title))}</h4>
       <p>${escapeHtml(fallbackText(item.explanation))}</p>
+    </article>
+  `).join("");
+}
+
+function renderRouteCards(items) {
+  const directions = Array.isArray(state.report?.suitableDirections) ? state.report.suitableDirections : [];
+  const defaults = [
+    { type: "salary", label: "最高薪路线", title: directions[0]?.title || "高薪潜力方向", why: directions[0]?.explanation || "优先选择薪资天花板更高、能力复利更明显的方向。", risk: "门槛更高，需要补作品、项目或硬技能证据。", nextStep: "先找 5 个目标 JD，反推必补能力。" },
+    { type: "speed", label: "最快上岸路线", title: directions[1]?.title || "最快可尝试方向", why: directions[1]?.explanation || "优先选择和现有经历最接近、转换成本最低的岗位。", risk: "可能不是长期最优，但能先建立反馈。", nextStep: "用现有经历改一版投递简历。" },
+    { type: "ease", label: "最轻松路线", title: "低阻力过渡方向", why: "尽量沿用已有行业、表达方式和协作经验，减少短期焦虑。", risk: "成长速度可能较慢，需要避免舒适区停留。", nextStep: "列出不用大幅补课也能胜任的岗位。" },
+    { type: "balance", label: "均衡路线", title: directions[2]?.title || "平衡成长方向", why: directions[2]?.explanation || "兼顾可进入性、长期成长和个人适配。", risk: "需要更清楚地排序目标，避免什么都想要。", nextStep: "设定 30 天验证任务，留下数据反馈。" },
+  ];
+  const safeItems = Array.isArray(items) && items.length ? items.slice(0, 4) : defaults;
+  const normalized = defaults.map((preset, index) => ({
+    ...preset,
+    ...(safeItems[index] || {}),
+    label: safeItems[index]?.label || preset.label,
+  }));
+
+  qs("#routeCards").innerHTML = normalized.map((item, index) => `
+    <article class="result-card route-card">
+      <span class="route-label">${escapeHtml(fallbackText(item.label))}</span>
+      <h4>${escapeHtml(fallbackText(item.title))}</h4>
+      <dl>
+        <dt>为什么</dt>
+        <dd>${escapeHtml(fallbackText(item.why || item.reason))}</dd>
+        <dt>风险</dt>
+        <dd>${escapeHtml(fallbackText(item.risk))}</dd>
+        <dt>下一步</dt>
+        <dd>${escapeHtml(fallbackText(item.nextStep || item.firstStep))}</dd>
+      </dl>
     </article>
   `).join("");
 }
@@ -410,6 +588,8 @@ function resetChatPanel() {
   setChatAvailable(true);
   qs("#chatMessages").innerHTML = '<div class="chat-placeholder">可以继续追问方向、短板、面试问题或证据不足之处。追问只使用压缩后的 career_profile 和总览，避免反复读取长简历。</div>';
   qs("#chatInput").value = "";
+  qs("#chatDock").classList.remove("collapsed");
+  qs("#chatToggleBtn").textContent = "收起";
 }
 
 function appendChatMessage(role, content = "") {
@@ -488,16 +668,23 @@ function exportJson() {
 }
 
 function persistAnalysis() {
-  if (!state.report || !state.careerProfile) return;
+  if (!state.careerProfile) return;
   localStorage.setItem(analysisStorageKey, JSON.stringify({
     careerProfile: state.careerProfile,
-    overviewReport: state.report,
+    overviewReport: state.report || null,
+    extractedResumeText: state.extractedResumeText,
     savedAt: new Date().toISOString(),
+    isPartial: !state.report,
   }));
 }
 
 function fillSample() {
   qs("#ageInput").value = "31";
+  qs("#regionInput").value = "北京";
+  qs("#targetGoalInput").value = "转行";
+  qs("#currentThoughtInput").value = "想从公关传播和风险策略经验，转到数据分析或策略分析方向；也想确认自己是否适合继续读商科。";
+  qs("#targetDirectionInput").value = "数据分析、策略分析、品牌公关";
+  qs("#anxietyInput").value = "担心简历看起来分散，不知道哪些经历能转化成可被招聘方理解的能力。";
   qs("#resumeText").value = sampleResume;
   qs("#resumeFile").value = "";
   state.uploadedFile = null;
@@ -509,17 +696,20 @@ function fillSample() {
 
 function clearAll() {
   qs("#ageInput").value = "";
+  qs("#regionInput").value = "";
   qs("#targetGoalInput").value = "";
+  qs("#currentThoughtInput").value = "";
   qs("#targetDirectionInput").value = "";
   qs("#anxietyInput").value = "";
   qs("#resumeText").value = "";
   qs("#resumeFile").value = "";
   qs("#fileStatus").textContent = "支持 TXT、MD、PDF、DOCX。";
   qs("#reportContent").hidden = true;
+  qs("#moduleEntrySection").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
-    <strong>等待分析</strong>
-    <p>系统会先把简历压缩成 career_profile，再生成一份短总览，减少重复 token 消耗。</p>
+    <strong>等待载入经历</strong>
+    <p>上传或粘贴简历后，系统会先生成 career_profile，再输出首页短总览。深度模块会复用画像，减少重复 token 消耗。</p>
   `;
   qs("#exportBtn").disabled = true;
   state.report = null;
@@ -529,8 +719,11 @@ function clearAll() {
   state.chatHistory = [];
   qs("#chatMessages").innerHTML = '<div class="chat-placeholder">完成上方分析后，可以在这里追问细节。</div>';
   setChatAvailable(false);
+  qs("#chatDock").classList.add("collapsed");
+  qs("#chatToggleBtn").textContent = "展开";
   localStorage.removeItem(storageKey);
   localStorage.removeItem(analysisStorageKey);
+  openIntakeModal();
   showToast("已清空");
 }
 
@@ -540,6 +733,14 @@ function bindEvents() {
   qs("#sampleBtn").addEventListener("click", fillSample);
   qs("#clearBtn").addEventListener("click", clearAll);
   qs("#exportBtn").addEventListener("click", exportJson);
+  qs("#openIntakeBtn").addEventListener("click", openIntakeModal);
+  qs("#closeIntakeBtn").addEventListener("click", closeIntakeModal);
+  qs("#modalScrim").addEventListener("click", closeIntakeModal);
+  qs("#chatToggleBtn").addEventListener("click", () => {
+    const dock = qs("#chatDock");
+    dock.classList.toggle("collapsed");
+    qs("#chatToggleBtn").textContent = dock.classList.contains("collapsed") ? "展开" : "收起";
+  });
   qs("#chatForm").addEventListener("submit", (event) => {
     event.preventDefault();
     sendChat();
@@ -548,7 +749,9 @@ function bindEvents() {
     button.addEventListener("click", () => sendChat(button.dataset.question || ""));
   });
   qs("#ageInput").addEventListener("input", persistDraft);
+  qs("#regionInput").addEventListener("input", persistDraft);
   qs("#targetGoalInput").addEventListener("change", persistDraft);
+  qs("#currentThoughtInput").addEventListener("input", persistDraft);
   qs("#targetDirectionInput").addEventListener("input", persistDraft);
   qs("#anxietyInput").addEventListener("input", persistDraft);
   qs("#resumeText").addEventListener("input", persistDraft);

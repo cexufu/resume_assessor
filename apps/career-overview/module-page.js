@@ -19,6 +19,7 @@ const state = {
   analysis: null,
   report: null,
   isAnalyzing: false,
+  loadingTimer: null,
 };
 
 function qs(selector) {
@@ -73,7 +74,7 @@ function setBusy(isBusy) {
   const runButton = qs("#runModuleBtn");
   if (runButton) {
     runButton.disabled = isBusy || !state.analysis?.careerProfile;
-    runButton.textContent = isBusy ? "生成中..." : "生成深度分析";
+    runButton.textContent = isBusy ? "正在生成..." : "生成深度分析";
   }
   setText("#moduleStatus", state.analysis?.careerProfile ? (isBusy ? "正在分析" : "可生成") : "缺少画像");
 }
@@ -127,7 +128,7 @@ async function runModule() {
 
   try {
     setBusy(true);
-    qs("#moduleOutput").innerHTML = '<div class="chat-placeholder">正在生成当前子页面分析，不会重复读取完整简历。</div>';
+    showModuleLoadingState();
     const report = await window.ResumeInsightAPI.analyzeModule(moduleType, {
       careerProfile: state.analysis.careerProfile,
       moduleInput: readModuleInput(),
@@ -139,7 +140,52 @@ async function runModule() {
     qs("#moduleOutput").innerHTML = `<div class="chat-placeholder">深度分析失败：${escapeHtml(error.message)}</div>`;
     showToast(error.message);
   } finally {
+    stopModuleLoadingState();
     setBusy(false);
+  }
+}
+
+function showModuleLoadingState() {
+  stopModuleLoadingState();
+  const labels = {
+    career: ["正在比较职业路线", "只使用 career_profile 和本页补充信息，不重复读取完整简历。"],
+    study: ["正在判断专业连接", "会优先识别国家、预算、成绩等约束，信息不足会直接提示。"],
+    ability: ["正在绘制能力地图", "会把经历转译成可迁移能力、瓶颈和训练任务。"],
+  };
+  const [title, message] = labels[moduleType] || labels.career;
+  qs("#moduleOutput").innerHTML = `
+    <div class="module-loading">
+      <strong id="moduleLoadingTitle">${escapeHtml(title)}</strong>
+      <p id="moduleLoadingMessage">${escapeHtml(message)}</p>
+      <div class="loading-track" aria-hidden="true"><span id="moduleLoadingBar"></span></div>
+      <ol class="loading-steps">
+        <li class="active">读取画像</li>
+        <li id="moduleStepReasoning">生成判断</li>
+        <li id="moduleStepWrap">收束行动建议</li>
+      </ol>
+    </div>
+  `;
+  const startedAt = Date.now();
+  const update = () => {
+    const elapsed = Date.now() - startedAt;
+    const bar = qs("#moduleLoadingBar");
+    if (!bar) return;
+    bar.style.width = `${Math.min(90, 22 + Math.floor(elapsed / 800))}%`;
+    if (elapsed > 10_000) qs("#moduleStepReasoning")?.classList.add("active");
+    if (elapsed > 24_000) {
+      qs("#moduleStepReasoning")?.classList.add("done");
+      qs("#moduleStepWrap")?.classList.add("active");
+      qs("#moduleLoadingMessage").textContent = "模型仍在工作，请保持页面打开；本次请求有独立 token 限制。";
+    }
+  };
+  update();
+  state.loadingTimer = window.setInterval(update, 800);
+}
+
+function stopModuleLoadingState() {
+  if (state.loadingTimer) {
+    window.clearInterval(state.loadingTimer);
+    state.loadingTimer = null;
   }
 }
 
@@ -151,6 +197,18 @@ function listHtml(items, mapper = (item) => item) {
 function tagRow(items) {
   const source = Array.isArray(items) && items.length ? items : ["信息不足"];
   return `<div class="tag-row">${source.map((item) => `<span>${escapeHtml(fallbackText(item))}</span>`).join("")}</div>`;
+}
+
+function moduleHero(title, subtitle, items = []) {
+  const chips = items.filter(Boolean).slice(0, 4);
+  return `
+    <section class="module-first-screen">
+      <span class="eyebrow">First screen</span>
+      <h3>${escapeHtml(fallbackText(title))}</h3>
+      <p>${escapeHtml(fallbackText(subtitle))}</p>
+      ${chips.length ? tagRow(chips) : ""}
+    </section>
+  `;
 }
 
 function renderModuleReport(report) {
@@ -220,6 +278,11 @@ function renderCareerModule(report) {
   const actionPlan = report.actionPlan || {};
   return `
     <div class="module-output-content">
+      ${moduleHero(
+        summary.bestFit || "先判断最适合进入哪类岗位",
+        summary.oneLine || "职业页会比较适配、风险和第一步动作。",
+        ["最高薪", "最快上岸", "低阻力过渡", "均衡路线"],
+      )}
       <section class="module-output-section">
         <h4>职业判断</h4>
         <p>${escapeHtml(fallbackText(summary.oneLine))}</p>
@@ -269,6 +332,11 @@ function renderStudyModule(report) {
   const majors = Array.isArray(report.recommendedMajors) ? report.recommendedMajors.slice(0, 5) : [];
   return `
     <div class="module-output-content">
+      ${moduleHero(
+        summary.oneLine || "先判断专业方向和申请约束",
+        summary.strategy || "留学页不会虚构学校或录取概率，会先说专业连接、申请短板和仍缺信息。",
+        ["专业匹配", "申请短板", "职业连接", "预算/GPA/语言"],
+      )}
       <section class="module-output-section">
         <h4>申请策略</h4>
         <p>${escapeHtml(fallbackText(summary.oneLine))}</p>
@@ -319,6 +387,11 @@ function renderAbilityModule(report) {
   const milestone = report.nextMilestone || {};
   return `
     <div class="module-output-content">
+      ${moduleHero(
+        summary.typeLabel || "先判断你的能力类型",
+        summary.oneLine || "能力页会把经历转译成可迁移能力、瓶颈和训练任务。",
+        ["可迁移能力", "能力雷达", "瓶颈", "训练任务"],
+      )}
       <section class="module-output-section">
         <h4>能力画像</h4>
         <p>${escapeHtml(fallbackText(summary.oneLine))}</p>

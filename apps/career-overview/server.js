@@ -2,7 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const mammoth = require("mammoth");
-const pdfParse = require("pdf-parse");
+const pdfParseModule = require("pdf-parse");
 
 const PUBLIC_DIR = __dirname;
 const ENV_FILE = path.join(PUBLIC_DIR, ".env");
@@ -82,7 +82,7 @@ const profileSystemPrompt = [
 
 const profileJsonContract = [
   "JSON 顶层字段必须为：basic, experienceSummary, skills, strengths, weaknesses, careerSignals, studySignals, abilitySignals, evidence, expressionProblems, missingInformation。",
-  "basic 字段：age, educationStage, major, yearsOfExperience, targetGoal, targetDirection, anxiety。",
+  "basic 字段：age, region, educationStage, major, yearsOfExperience, targetGoal, currentThought, targetDirection, anxiety。",
   "experienceSummary 最多 5 条，每条字段：title, evidence。",
   "skills 最多 8 条，每条字段：name, evidence, level。",
   "strengths 最多 5 条，每条字段：name, evidence。",
@@ -106,11 +106,13 @@ const overviewSystemPrompt = [
 ].join("\n");
 
 const overviewJsonContract = [
-  "JSON 顶层字段必须为：comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
+  "JSON 顶层字段必须为：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, routeCards, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
+  "identitySnapshot：字段 who, destination, stage。分别回答“你是谁”“你想去哪”“你到哪一步了”，每项不超过 70 个中文字符。",
   "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。强调能力优先，不要只说经历。",
   "peerScore：字段 score, explanation。score 为 0-10。",
   "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。",
   "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题。",
+  "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。",
   "suitableDirections：3 项，每项字段 title, explanation。",
   "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性。",
   "shortcomings：字段 summary, items。items 最多 3 条。",
@@ -251,7 +253,9 @@ function normalizeContext(rawContext = {}) {
   const context = rawContext && typeof rawContext === "object" ? rawContext : {};
   return {
     age: normalizeText(context.age, 12),
+    region: normalizeText(context.region, 80),
     targetGoal: normalizeText(context.targetGoal, 60),
+    currentThought: normalizeText(context.currentThought, 280),
     targetDirection: normalizeText(context.targetDirection, 160),
     anxiety: normalizeText(context.anxiety, 240),
   };
@@ -321,8 +325,7 @@ async function extractTextFromFile(file) {
   }
 
   if (isPdfFile(file)) {
-    const result = await pdfParse(buffer);
-    return normalizeText(result.text);
+    return extractTextFromPdf(buffer);
   }
 
   if (isDocxFile(file)) {
@@ -331,6 +334,25 @@ async function extractTextFromFile(file) {
   }
 
   throw new Error("Unsupported resume file type. Please upload TXT, MD, PDF, or DOCX.");
+}
+
+async function extractTextFromPdf(buffer) {
+  if (typeof pdfParseModule === "function") {
+    const result = await pdfParseModule(buffer);
+    return normalizeText(result.text);
+  }
+
+  if (typeof pdfParseModule.PDFParse === "function") {
+    const parser = new pdfParseModule.PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      return normalizeText(result.text);
+    } finally {
+      await parser.destroy();
+    }
+  }
+
+  throw new Error("PDF parser is not available.");
 }
 
 function buildProfilePrompt(payload, resumeText, file) {
@@ -342,7 +364,9 @@ function buildProfilePrompt(payload, resumeText, file) {
     "用户基础信息：",
     JSON.stringify({
       age: context.age || "未填写",
+      region: context.region || "未填写",
       targetGoal: context.targetGoal || "未填写",
+      currentThought: context.currentThought || "未填写",
       targetDirection: context.targetDirection || "未填写",
       anxiety: context.anxiety || "未填写",
       uploadedFile: file ? { name: file.name, type: file.type, sizeBytes: file.sizeBytes } : null,
@@ -496,6 +520,29 @@ function ensureOverviewFields(report, careerProfile) {
   const expressionProblems = Array.isArray(careerProfile?.expressionProblems) ? careerProfile.expressionProblems : [];
   const abilitySignals = Array.isArray(careerProfile?.abilitySignals) ? careerProfile.abilitySignals : [];
   const careerSignals = Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : [];
+  const basic = careerProfile?.basic || {};
+
+  if (!safeReport.identitySnapshot || typeof safeReport.identitySnapshot !== "object") {
+    const topStrength = firstItem(strengths);
+    const topWeakness = firstItem(weaknesses);
+    safeReport.identitySnapshot = {
+      who: firstText([
+        topStrength.name ? `一个正在把“${topStrength.name}”转成职业资产的人` : "",
+        basic.major ? `一个有${basic.major}背景、正在重新确认方向的人` : "",
+        "一个需要把经历重新翻译成职业资产的人",
+      ]),
+      destination: firstText([
+        basic.targetDirection,
+        basic.targetGoal,
+        "先找到一个可验证的小方向，再逐步扩大选择面",
+      ]),
+      stage: firstText([
+        topWeakness.name ? `已有一些经历证据，但“${topWeakness.name}”仍需要补齐` : "",
+        expressionProblems[0],
+        "处在从经历整理走向方向验证的阶段",
+      ]),
+    };
+  }
 
   if (!safeReport.capabilityDiagnosis || typeof safeReport.capabilityDiagnosis !== "object") {
     const topStrength = firstItem(strengths);
@@ -516,6 +563,40 @@ function ensureOverviewFields(report, careerProfile) {
         "例如不要只写做过活动，而要说明这次活动想证明什么、影响谁、为什么这样设计。",
       ]),
     };
+  }
+
+  if (!Array.isArray(safeReport.routeCards) || safeReport.routeCards.length < 4) {
+    const directions = Array.isArray(safeReport.suitableDirections) ? safeReport.suitableDirections : [];
+    safeReport.routeCards = [
+      {
+        label: "最高薪路线",
+        title: firstText([directions[0]?.title, "高薪潜力方向"]),
+        why: firstText([directions[0]?.explanation, "优先选择薪资天花板更高、能力复利更明显的方向。"]),
+        risk: "门槛更高，需要补作品、项目或硬技能证据。",
+        nextStep: "先找 5 个目标 JD，反推必补能力。",
+      },
+      {
+        label: "最快上岸路线",
+        title: firstText([directions[1]?.title, "最快可尝试方向"]),
+        why: firstText([directions[1]?.explanation, "优先选择和现有经历最接近、转换成本最低的岗位。"]),
+        risk: "可能不是长期最优，但能先建立反馈。",
+        nextStep: "用现有经历改一版投递简历。",
+      },
+      {
+        label: "最轻松路线",
+        title: "低阻力过渡方向",
+        why: "尽量沿用已有行业、表达方式和协作经验，减少短期焦虑。",
+        risk: "成长速度可能较慢，需要避免舒适区停留。",
+        nextStep: "列出不用大幅补课也能胜任的岗位。",
+      },
+      {
+        label: "均衡路线",
+        title: firstText([directions[2]?.title, "平衡成长方向"]),
+        why: firstText([directions[2]?.explanation, "兼顾可进入性、长期成长和个人适配。"]),
+        risk: "需要更清楚地排序目标，避免什么都想要。",
+        nextStep: "设定 30 天验证任务，留下数据反馈。",
+      },
+    ];
   }
 
   return safeReport;
@@ -738,8 +819,21 @@ async function handleAnalyzeResume(req, res) {
       return;
     }
 
+    let careerProfile = null;
     try {
-      const careerProfile = await createCareerProfile(payload, resumeText, file);
+      careerProfile = await createCareerProfile(payload, resumeText, file);
+    } catch (error) {
+      sendJson(res, 502, {
+        error: error.message,
+        code: "profile_analysis_failed",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+      });
+      return;
+    }
+
+    try {
       const report = await createOverviewReport(careerProfile);
       report.meta = {
         mode: "ai",
@@ -764,12 +858,55 @@ async function handleAnalyzeResume(req, res) {
     } catch (error) {
       sendJson(res, 502, {
         error: error.message,
-        code: "ai_analysis_failed",
+        code: "overview_analysis_failed",
         provider: "deepseek",
         model: DEEPSEEK_MODEL,
         baseUrl: DEEPSEEK_BASE_URL,
+        partial: {
+          careerProfile,
+          extractedResumeText: resumeText,
+          analyzedAt: new Date().toISOString(),
+          tokenBudget: {
+            profileMaxTokens: PROFILE_MAX_TOKENS,
+            overviewMaxTokens: OVERVIEW_MAX_TOKENS,
+            moduleMaxTokens: MODULE_MAX_TOKENS,
+            chatMaxTokens: CHAT_MAX_TOKENS,
+          },
+        },
       });
     }
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleExtractResumeText(req, res) {
+  try {
+    const payload = await readJson(req);
+    const file = normalizeFile(payload.file);
+
+    if (!file) {
+      sendJson(res, 400, { error: "请上传 TXT、MD、PDF 或 DOCX 简历文件。" });
+      return;
+    }
+
+    const text = await extractTextFromFile(file);
+    if (!text) {
+      sendJson(res, 400, { error: "没有从文件中提取到可分析文本，请换一个文件或粘贴正文。" });
+      return;
+    }
+
+    sendJson(res, 200, {
+      text,
+      meta: {
+        source: "file",
+        fileName: file.name,
+        fileType: file.type,
+        fileSizeBytes: file.sizeBytes,
+        extractedTextChars: text.length,
+        maxResumeTextChars: MAX_RESUME_TEXT_CHARS,
+      },
+    });
   } catch (error) {
     sendJson(res, 500, { error: error.message });
   }
@@ -945,7 +1082,7 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/api/health") {
     sendJson(res, 200, {
       ok: true,
-      app: "职业发展总览",
+      app: "Resume Partner",
       provider: "deepseek",
       hasDeepSeekKey: Boolean(DEEPSEEK_API_KEY),
       envFileLoaded,
@@ -964,6 +1101,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && req.url === "/api/test-ai") {
     handleTestAi(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/extract-resume-text") {
+    handleExtractResumeText(req, res);
     return;
   }
 
@@ -1002,7 +1144,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`职业发展总览 running at http://localhost:${PORT}`);
+  console.log(`Resume Partner running at http://localhost:${PORT}`);
   console.log(DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY loaded on the server." : "DEEPSEEK_API_KEY is not set; AI endpoints will fail.");
   console.log(`Model: ${DEEPSEEK_MODEL}`);
   console.log(`API: ${DEEPSEEK_BASE_URL}/chat/completions`);

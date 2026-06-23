@@ -3,29 +3,45 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>职业发展总览</title>
+    <title>Resume Partner | 职业发展伙伴</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">读</span>
+          <span class="brand-mark" aria-hidden="true">RP</span>
           <div>
-            <h1>职业发展总览</h1>
-            <p>先压缩职业画像，再分模块分析方向、留学和能力</p>
+            <h1>Resume Partner</h1>
+            <p>不是替你改一份简历，而是帮你看清下一段路</p>
           </div>
         </div>
         <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
       </header>
 
-      <main class="workspace">
-        <section class="intake-panel" aria-label="简历输入">
+      <main class="workspace result-workspace">
+        <section class="intake-modal open" id="intakeModal" aria-label="简历输入悬浮框">
+          <div class="modal-scrim" id="modalScrim" aria-hidden="true"></div>
+          <div class="intake-panel intake-card" role="dialog" aria-modal="true" aria-labelledby="intakeDialogTitle">
+            <div class="modal-titlebar">
+              <div>
+                <span class="eyebrow">Input</span>
+                <h2 id="intakeDialogTitle">载入你的经历</h2>
+              </div>
+              <button class="ghost-button modal-close" id="closeIntakeBtn" type="button">关闭</button>
+            </div>
+
+          <div class="intake-hero">
+            <span class="eyebrow">Life coordinate</span>
+            <h2>把你的经历载入进来</h2>
+            <p>系统会先压缩成职业画像，再生成短总览。职业、留学、能力三个深度分析会放到子页面完成，避免一次输出太重。</p>
+          </div>
+
           <div class="panel-heading">
             <span class="step-badge">01</span>
             <div>
-              <h2>建立职业画像</h2>
-              <p>总览先做短分析，深度内容分模块生成</p>
+              <h2>建立人生坐标</h2>
+              <p>先回答你现在在哪里，再判断往哪里走</p>
             </div>
           </div>
 
@@ -35,7 +51,12 @@
           </label>
 
           <label class="field">
-            <span>当前目标</span>
+            <span>所在地区</span>
+            <input id="regionInput" type="text" maxlength="80" placeholder="例如：北京、上海、深圳、海外" />
+          </label>
+
+          <label class="field">
+            <span>现在想解决什么</span>
             <select id="targetGoalInput">
               <option value="">请选择</option>
               <option value="找实习">找实习</option>
@@ -48,12 +69,17 @@
           </label>
 
           <label class="field">
-            <span>目标方向</span>
+            <span>当前升学/职业想法</span>
+            <textarea id="currentThoughtInput" class="compact-textarea" maxlength="260" placeholder="例如：想试试数据分析，但又担心背景不够；也在考虑商科留学。"></textarea>
+          </label>
+
+          <label class="field">
+            <span>想探索的方向（可选）</span>
             <input id="targetDirectionInput" type="text" maxlength="120" placeholder="例如：数据分析、品牌、公关、商科留学" />
           </label>
 
           <label class="field">
-            <span>当前最焦虑的问题</span>
+            <span>当前最卡住的问题</span>
             <textarea id="anxietyInput" class="compact-textarea" maxlength="220" placeholder="例如：不知道自己适合什么岗位，担心简历没有竞争力。"></textarea>
           </label>
 
@@ -69,9 +95,10 @@
           </label>
 
           <div class="button-row">
-            <button class="primary-button" id="analyzeBtn" type="button">开始分析</button>
+            <button class="primary-button" id="analyzeBtn" type="button">Load My Life</button>
             <button class="ghost-button" id="sampleBtn" type="button">填入样例</button>
             <button class="ghost-button" id="clearBtn" type="button">清空</button>
+          </div>
           </div>
         </section>
 
@@ -79,17 +106,20 @@
           <div class="report-toolbar">
             <div>
               <span class="eyebrow">AI 输出</span>
-              <h2>职业发展总览</h2>
+              <h2>你的职业坐标</h2>
             </div>
-            <button class="ghost-button" id="exportBtn" type="button" disabled>导出 JSON</button>
+            <div class="toolbar-actions">
+              <button class="ghost-button" id="openIntakeBtn" type="button">修改输入</button>
+              <button class="ghost-button" id="exportBtn" type="button" disabled>导出 JSON</button>
+            </div>
           </div>
 
           <div class="report-empty" id="emptyState">
-            <strong>等待分析</strong>
-            <p>系统会先把简历压缩成 career_profile，再生成一份短总览，减少重复 token 消耗。</p>
+            <strong>等待载入经历</strong>
+            <p>上传或粘贴简历后，系统会先生成 career_profile，再输出首页短总览。深度模块会复用画像，减少重复 token 消耗。</p>
           </div>
 
-          <section class="result-section module-entry-section">
+          <section class="result-section module-entry-section" id="moduleEntrySection" hidden>
             <div class="section-title">
               <span>页</span>
               <h3>深度分析子页面</h3>
@@ -117,9 +147,30 @@
           </section>
 
           <div class="report-content" id="reportContent" hidden>
+            <section class="result-section snapshot-section">
+              <div class="section-title">
+                <span>坐</span>
+                <h3>先看清你的位置</h3>
+              </div>
+              <div class="snapshot-grid">
+                <article>
+                  <span>你是谁</span>
+                  <p id="identityWho">--</p>
+                </article>
+                <article>
+                  <span>你想去哪</span>
+                  <p id="identityDestination">--</p>
+                </article>
+                <article>
+                  <span>你到哪一步了</span>
+                  <p id="identityStage">--</p>
+                </article>
+              </div>
+            </section>
+
             <section class="result-section comfort-section">
               <div class="section-title">
-                <span>0</span>
+                <span>安</span>
                 <h3>先把你接住</h3>
               </div>
               <p class="lead-text comfort-text" id="comfortIntro">--</p>
@@ -196,6 +247,14 @@
             <section class="result-section">
               <div class="section-title">
                 <span>5</span>
+                <h3>四条路径比较</h3>
+              </div>
+              <div class="card-grid four" id="routeCards"></div>
+            </section>
+
+            <section class="result-section">
+              <div class="section-title">
+                <span>6</span>
                 <h3>适合工作方向</h3>
               </div>
               <div class="card-grid three" id="directionList"></div>
@@ -203,7 +262,7 @@
 
             <section class="result-section">
               <div class="section-title">
-                <span>6</span>
+                <span>7</span>
                 <h3>你可能没想到的新可能性</h3>
               </div>
               <div class="card-grid two" id="newPossibilities"></div>
@@ -211,7 +270,7 @@
 
             <section class="result-section">
               <div class="section-title">
-                <span>7</span>
+                <span>8</span>
                 <h3>潜在短板</h3>
               </div>
               <p class="lead-text" id="shortcomingsSummary">--</p>
@@ -220,7 +279,7 @@
 
             <section class="result-section">
               <div class="section-title">
-                <span>8</span>
+                <span>9</span>
                 <h3>最应补齐</h3>
               </div>
               <div class="advice-grid">
@@ -242,39 +301,42 @@
 
             <section class="result-section" id="moduleRecommendationSection">
               <div class="section-title">
-                <span>9</span>
+                <span>深</span>
                 <h3>建议深挖模块</h3>
               </div>
               <div class="card-grid three" id="moduleRecommendations"></div>
             </section>
           </div>
-
-          <section class="chat-panel" aria-label="简历追问">
-            <div class="chat-heading">
-              <div>
-                <span class="eyebrow">流式追问</span>
-                <h3>基于简历继续问</h3>
-              </div>
-              <span class="chat-status" id="chatStatus">先完成分析</span>
-            </div>
-
-            <div class="prompt-chips" id="promptChips">
-              <button type="button" data-question="这个人最适合往哪个方向深挖？">适合深挖方向</button>
-              <button type="button" data-question="如果我要面试他，最应该追问哪三个问题？">面试追问</button>
-              <button type="button" data-question="这份简历最大的不确定性在哪里？">不确定性</button>
-            </div>
-
-            <div class="chat-messages" id="chatMessages">
-              <div class="chat-placeholder">完成上方分析后，可以在这里追问细节。</div>
-            </div>
-
-            <form class="chat-form" id="chatForm">
-              <textarea id="chatInput" rows="2" placeholder="例如：如果他去做舆情策略，短板是什么？" disabled></textarea>
-              <button class="primary-button" id="chatSendBtn" type="submit" disabled>发送</button>
-            </form>
-          </section>
         </section>
       </main>
+
+      <section class="chat-panel chat-dock collapsed" id="chatDock" aria-label="简历追问">
+        <div class="chat-heading">
+          <div>
+            <span class="eyebrow">Live partner</span>
+            <h3>继续追问</h3>
+          </div>
+          <div class="chat-actions">
+            <span class="chat-status" id="chatStatus">先完成分析</span>
+            <button class="ghost-button chat-toggle" id="chatToggleBtn" type="button">展开</button>
+          </div>
+        </div>
+
+        <div class="prompt-chips" id="promptChips">
+          <button type="button" data-question="这个人最适合往哪个方向深挖？">适合深挖方向</button>
+          <button type="button" data-question="如果我要面试他，最应该追问哪三个问题？">面试追问</button>
+          <button type="button" data-question="这份简历最大的不确定性在哪里？">不确定性</button>
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
+          <div class="chat-placeholder">完成上方分析后，可以在这里追问细节。</div>
+        </div>
+
+        <form class="chat-form" id="chatForm">
+          <textarea id="chatInput" rows="2" placeholder="例如：如果我去做舆情策略，短板是什么？" disabled></textarea>
+          <button class="primary-button" id="chatSendBtn" type="submit" disabled>发送</button>
+        </form>
+      </section>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
     </div>
