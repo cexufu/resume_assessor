@@ -279,7 +279,6 @@ async function analyze() {
 function showLoadingState() {
   stopLoadingState();
   qs("#reportContent").hidden = true;
-  qs("#moduleEntrySection").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
     <div class="loading-card">
@@ -308,7 +307,7 @@ function showLoadingState() {
     }
     if (elapsed > 30_000) {
       qs("#loadingTitle").textContent = "正在收束结果";
-      qs("#loadingMessage").textContent = "模型输出较慢时请保持页面打开；如果总览失败，已生成的画像会尽量保留下来。";
+      qs("#loadingMessage").textContent = "模型输出较慢时请保持页面打开；如果首页总览不够稳定，会保留画像并引导你进入深度页。";
       qs("#loadingStepOverview").classList.add("done");
       qs("#loadingStepModules").classList.add("active");
     }
@@ -326,7 +325,6 @@ function stopLoadingState() {
 
 function showErrorState(message) {
   qs("#reportContent").hidden = true;
-  qs("#moduleEntrySection").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
     <strong>分析失败</strong>
@@ -344,11 +342,10 @@ function showErrorState(message) {
 
 function showPartialState(message) {
   qs("#reportContent").hidden = true;
-  qs("#moduleEntrySection").hidden = false;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
     <strong>已保留职业画像</strong>
-    <p>首页总览这次没有稳定生成，但你的简历画像已经保留。你可以直接进入深度子页面，它们会复用已生成的 career_profile，不需要重新上传简历。</p>
+    <p>首页总览这次没有达到稳定输出标准，所以不展示泛泛结论。你的简历画像已经保留，可以直接进入深度子页面继续分析。</p>
     <div class="recovery-actions">
       <a class="primary-link" href="./career.html">去职业方向</a>
       <a class="ghost-link" href="./study.html">去留学专业</a>
@@ -366,7 +363,6 @@ function showPartialState(message) {
 
 function renderReport(report) {
   qs("#emptyState").hidden = true;
-  qs("#moduleEntrySection").hidden = false;
   qs("#reportContent").hidden = false;
   qs("#exportBtn").disabled = false;
 
@@ -469,10 +465,10 @@ function renderDirections(items) {
 function renderRouteCards(items) {
   const directions = Array.isArray(state.report?.suitableDirections) ? state.report.suitableDirections : [];
   const defaults = [
-    { type: "salary", label: "最高薪路线", title: directions[0]?.title || "高薪潜力方向", why: directions[0]?.explanation || "优先选择薪资天花板更高、能力复利更明显的方向。", risk: "门槛更高，需要补作品、项目或硬技能证据。", nextStep: "先找 5 个目标 JD，反推必补能力。" },
-    { type: "speed", label: "最快上岸路线", title: directions[1]?.title || "最快可尝试方向", why: directions[1]?.explanation || "优先选择和现有经历最接近、转换成本最低的岗位。", risk: "可能不是长期最优，但能先建立反馈。", nextStep: "用现有经历改一版投递简历。" },
-    { type: "ease", label: "最轻松路线", title: "低阻力过渡方向", why: "尽量沿用已有行业、表达方式和协作经验，减少短期焦虑。", risk: "成长速度可能较慢，需要避免舒适区停留。", nextStep: "列出不用大幅补课也能胜任的岗位。" },
-    { type: "balance", label: "均衡路线", title: directions[2]?.title || "平衡成长方向", why: directions[2]?.explanation || "兼顾可进入性、长期成长和个人适配。", risk: "需要更清楚地排序目标，避免什么都想要。", nextStep: "设定 30 天验证任务，留下数据反馈。" },
+    { type: "salary", label: "最高薪路线", title: directions[0]?.title || "进入职业方向页细化", why: directions[0]?.explanation || "首页信息不足以可靠比较薪资路线，需要补目标行业、城市和薪资预期。", risk: "不要把泛泛高薪当成结论。", nextStep: "进入职业方向页，补充目标岗位和城市。" },
+    { type: "speed", label: "最快上岸路线", title: directions[1]?.title || "进入职业方向页细化", why: directions[1]?.explanation || "需要比较现有经历和岗位 JD 的距离，才能判断最快路径。", risk: "过快上岸可能牺牲长期成长。", nextStep: "补充你愿意接受的岗位层级和转行边界。" },
+    { type: "ease", label: "最轻松路线", title: "进入职业方向页细化", why: "需要知道你不想承受的成本，才能判断低阻力路径。", risk: "低阻力不等于长期适合。", nextStep: "补充你不想做的工作类型和可接受强度。" },
+    { type: "balance", label: "均衡路线", title: directions[2]?.title || "进入职业方向页细化", why: directions[2]?.explanation || "需要把薪资、成长、上岸速度和个人偏好放在一起权衡。", risk: "不排序就容易变成什么都想要。", nextStep: "进入职业方向页做路线排序。" },
   ];
   const safeItems = Array.isArray(items) && items.length ? items.slice(0, 4) : defaults;
   const normalized = defaults.map((preset, index) => ({
@@ -705,7 +701,6 @@ function clearAll() {
   qs("#resumeFile").value = "";
   qs("#fileStatus").textContent = "支持 TXT、MD、PDF、DOCX。";
   qs("#reportContent").hidden = true;
-  qs("#moduleEntrySection").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
     <strong>等待载入经历</strong>

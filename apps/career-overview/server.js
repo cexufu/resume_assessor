@@ -108,12 +108,13 @@ const overviewSystemPrompt = [
 const overviewJsonContract = [
   "JSON 顶层字段必须为：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, routeCards, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
   "identitySnapshot：字段 who, destination, stage。分别回答“你是谁”“你想去哪”“你到哪一步了”，每项不超过 70 个中文字符。",
-  "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。强调能力优先，不要只说经历。",
+  "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。必须像产品诊断，不要像简历摘要；coreAbility 要命名为独特能力标签，例如“内容安全体系化设计能力”“风险信号翻译能力”；evidence 必须引用 career_profile 的具体项目或事实；expressionGap 必须指出为什么招聘方看不懂；nextProof 必须是一个可执行补证动作。",
   "peerScore：字段 score, explanation。score 为 0-10。",
   "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。",
   "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题。",
-  "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。",
-  "suitableDirections：3 项，每项字段 title, explanation。",
+  "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写“高薪潜力方向”“最快可尝试方向”“低阻力过渡方向”“平衡成长方向”这类占位词。",
+  "routeCards 每项都必须基于 career_profile 的证据，why/risk/nextStep 必须具体到岗位场景、证据缺口或 7 天动作。",
+  "suitableDirections：3 项，每项字段 title, explanation。title 必须是具体岗位方向或职业场景。",
   "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性。",
   "shortcomings：字段 summary, items。items 最多 3 条。",
   "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice。",
@@ -121,6 +122,16 @@ const overviewJsonContract = [
   "closingEncouragement：结尾安慰，1 句，强调可以从最小行动开始。",
   "moduleRecommendations：3 项，每项字段 module, reason, suggestedQuestion。module 只能是 career, study, ability。",
   "所有文本字段尽量不超过 80 个中文字符。",
+].join("\n");
+
+const compactOverviewJsonContract = [
+  "JSON 顶层字段必须为：identitySnapshot, capabilityDiagnosis, routeCards, suitableDirections, moduleRecommendations。",
+  "identitySnapshot 字段：who, destination, stage。",
+  "capabilityDiagnosis 字段：coreAbility, evidence, expressionGap, nextProof。必须具体引用 career_profile 证据。",
+  "routeCards 必须 4 项，每项字段：label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写泛泛占位词。",
+  "suitableDirections 必须 3 项，每项字段：title, explanation。",
+  "moduleRecommendations 必须 3 项，每项字段：module, reason, suggestedQuestion。module 只能是 career, study, ability。",
+  "所有文本字段不超过 70 个中文字符。只返回合法 JSON。",
 ].join("\n");
 
 const moduleSystemPrompts = {
@@ -388,6 +399,19 @@ function buildOverviewPrompt(careerProfile) {
   ].join("\n");
 }
 
+function buildCompactOverviewPrompt(careerProfile, previousError = "") {
+  return [
+    "上一轮首页总览 JSON 不稳定，请改用更短 JSON 重新生成。",
+    "只生成合同要求的核心字段，避免长句和复杂嵌套。",
+    "必须基于 career_profile 的证据，不要输出模板占位词。",
+    "四条路线必须具体到岗位或路径。",
+    previousError ? `上一轮错误摘要：${normalizeText(previousError, 220)}` : "",
+    "",
+    "career_profile：",
+    stringifyCompact(careerProfile),
+  ].filter(Boolean).join("\n");
+}
+
 function buildJsonCompletionBody({ systemPrompt, contract, userPrompt, maxTokens, temperature = 0.2 }) {
   return {
     model: DEEPSEEK_MODEL,
@@ -512,6 +536,23 @@ function firstItem(items) {
   return Array.isArray(items) && items.length ? items[0] || {} : {};
 }
 
+function isGenericRouteTitle(title) {
+  return /^(高薪潜力方向|最快可尝试方向|低阻力过渡方向|平衡成长方向|信息不足|方向|岗位方向|职业方向)$/i.test(String(title || "").trim());
+}
+
+function assertOverviewQuality(report) {
+  const diagnosis = report?.capabilityDiagnosis || {};
+  const routes = Array.isArray(report?.routeCards) ? report.routeCards : [];
+  const concreteRoutes = routes.filter((item) => item?.title && !isGenericRouteTitle(item.title));
+  const hasSpecificDiagnosis = String(diagnosis.coreAbility || "").trim().length >= 6
+    && String(diagnosis.evidence || "").trim().length >= 12
+    && !/信息不足|可迁移能力仍需/.test(`${diagnosis.coreAbility || ""}${diagnosis.evidence || ""}`);
+
+  if (concreteRoutes.length < 4 || !hasSpecificDiagnosis) {
+    throw new Error("Overview quality check failed: route cards or capability diagnosis are too generic.");
+  }
+}
+
 function ensureOverviewFields(report, careerProfile) {
   const safeReport = report && typeof report === "object" ? report : {};
   const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
@@ -570,108 +611,36 @@ function ensureOverviewFields(report, careerProfile) {
     safeReport.routeCards = [
       {
         label: "最高薪路线",
-        title: firstText([directions[0]?.title, "高薪潜力方向"]),
-        why: firstText([directions[0]?.explanation, "优先选择薪资天花板更高、能力复利更明显的方向。"]),
-        risk: "门槛更高，需要补作品、项目或硬技能证据。",
-        nextStep: "先找 5 个目标 JD，反推必补能力。",
+        title: firstText([directions[0]?.title], "信息不足"),
+        why: firstText([directions[0]?.explanation], "信息不足"),
+        risk: "信息不足",
+        nextStep: "进入职业方向页补充目标岗位和城市。",
       },
       {
         label: "最快上岸路线",
-        title: firstText([directions[1]?.title, "最快可尝试方向"]),
-        why: firstText([directions[1]?.explanation, "优先选择和现有经历最接近、转换成本最低的岗位。"]),
-        risk: "可能不是长期最优，但能先建立反馈。",
-        nextStep: "用现有经历改一版投递简历。",
+        title: firstText([directions[1]?.title], "信息不足"),
+        why: firstText([directions[1]?.explanation], "信息不足"),
+        risk: "信息不足",
+        nextStep: "进入职业方向页补充可接受的岗位层级。",
       },
       {
         label: "最轻松路线",
-        title: "低阻力过渡方向",
-        why: "尽量沿用已有行业、表达方式和协作经验，减少短期焦虑。",
-        risk: "成长速度可能较慢，需要避免舒适区停留。",
-        nextStep: "列出不用大幅补课也能胜任的岗位。",
+        title: "信息不足",
+        why: "信息不足",
+        risk: "信息不足",
+        nextStep: "进入职业方向页补充不想承受的成本。",
       },
       {
         label: "均衡路线",
-        title: firstText([directions[2]?.title, "平衡成长方向"]),
-        why: firstText([directions[2]?.explanation, "兼顾可进入性、长期成长和个人适配。"]),
-        risk: "需要更清楚地排序目标，避免什么都想要。",
-        nextStep: "设定 30 天验证任务，留下数据反馈。",
+        title: firstText([directions[2]?.title], "信息不足"),
+        why: firstText([directions[2]?.explanation], "信息不足"),
+        risk: "信息不足",
+        nextStep: "进入职业方向页做路线排序。",
       },
     ];
   }
 
   return safeReport;
-}
-
-function createFallbackOverview(careerProfile, reason = "") {
-  const safeReport = ensureOverviewFields({}, careerProfile);
-  const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
-  const weaknesses = Array.isArray(careerProfile?.weaknesses) ? careerProfile.weaknesses : [];
-  const skills = Array.isArray(careerProfile?.skills) ? careerProfile.skills : [];
-  const careerSignals = Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : [];
-  const studySignals = Array.isArray(careerProfile?.studySignals) ? careerProfile.studySignals : [];
-  const abilitySignals = Array.isArray(careerProfile?.abilitySignals) ? careerProfile.abilitySignals : [];
-  const expressionProblems = Array.isArray(careerProfile?.expressionProblems) ? careerProfile.expressionProblems : [];
-  const missingInformation = Array.isArray(careerProfile?.missingInformation) ? careerProfile.missingInformation : [];
-  const basic = careerProfile?.basic || {};
-
-  safeReport.comfortIntro = "你的职业画像已经生成。首页总览会先基于已有证据给出稳妥判断，深度页面可以继续细化。";
-  safeReport.peerScore = {
-    score: 6,
-    explanation: "目前更适合先看能力证据和表达缺口，不建议把同龄比较当成唯一结论。",
-  };
-  safeReport.abilityFields = [0, 1, 2].map((index) => ({
-    name: firstText([skills[index]?.name, strengths[index]?.name, abilitySignals[index], `能力领域 ${index + 1}`]),
-    currentEvidence: firstText([skills[index]?.evidence, strengths[index]?.evidence, careerProfile?.evidence?.[index], "当前证据不足，需要补充项目过程和结果。"]),
-    usableScenes: firstText([careerSignals[index], abilitySignals[index], "可用于岗位匹配、简历表达和下一步训练。"]),
-  }));
-  safeReport.suitableDirections = [0, 1, 2].map((index) => ({
-    title: firstText([
-      careerSignals[index],
-      basic.targetDirection,
-      ["相近岗位试投方向", "能力迁移方向", "稳妥过渡方向"][index],
-    ]),
-    explanation: firstText([
-      strengths[index]?.evidence,
-      skills[index]?.evidence,
-      "这个方向需要在深度职业页继续结合岗位、城市和薪资预期判断。",
-    ]),
-  }));
-  safeReport.newPossibilities = [
-    {
-      title: "相邻能力迁移",
-      reason: firstText([careerSignals[0], "把已有经历重新翻译成能力证据，可能连接到相邻岗位。"]),
-      firstTry: "先选 3 个目标岗位，逐条匹配简历证据。",
-    },
-    {
-      title: "专业/能力组合路线",
-      reason: firstText([studySignals[0], abilitySignals[0], "职业选择也可以从专业背景和可迁移能力组合出发。"]),
-      firstTry: "进入留学专业或能力地图页，补充预算、成绩或能力自评。",
-    },
-  ];
-  safeReport.shortcomings = {
-    summary: firstText([weaknesses[0]?.name, expressionProblems[0], "当前最需要补齐的是表达清晰度和可验证结果。"]),
-    items: [
-      firstText([weaknesses[0]?.evidence, expressionProblems[0], "简历需要写清楚你负责什么、怎么判断、最后结果如何。"]),
-      firstText([weaknesses[1]?.evidence, missingInformation[0], "还缺少会影响判断的关键信息。"]),
-      firstText([weaknesses[2]?.evidence, "需要补充可以证明能力的具体项目证据。"]),
-    ],
-  };
-  safeReport.improvementAdvice = {
-    mostNeededAbility: firstText([weaknesses[0]?.name, "把经历翻译成能力证据"]),
-    missingExperience: firstText([missingInformation[0], "一个可量化、可复盘的代表项目"]),
-    shortAdvice: "先不要一次判断终身方向，进入深度页面把职业、留学和能力分别拆开验证。",
-  };
-  safeReport.closingEncouragement = "先从一个最小验证动作开始，方向会比空想时更清楚。";
-  safeReport.moduleRecommendations = [
-    { module: "career", reason: "继续判断岗位匹配、风险和第一步投递动作。", suggestedQuestion: "我应该优先投哪些岗位？" },
-    { module: "study", reason: "补充国家、预算、成绩后判断专业连接。", suggestedQuestion: "我适合申请哪些专业方向？" },
-    { module: "ability", reason: "把已有经历拆成可迁移能力和训练任务。", suggestedQuestion: "我最该补哪几项能力？" },
-  ];
-  safeReport.meta = {
-    fallbackOverview: true,
-    fallbackReason: normalizeText(reason, 240),
-  };
-  return ensureOverviewFields(safeReport, careerProfile);
 }
 
 function inferStrategicLevel(careerProfile) {
@@ -725,9 +694,24 @@ async function createOverviewReport(careerProfile) {
       maxTokens: OVERVIEW_MAX_TOKENS,
       temperature: 0.2,
     }));
-    return ensureOverviewFields(report, careerProfile);
+    const safeReport = ensureOverviewFields(report, careerProfile);
+    assertOverviewQuality(safeReport);
+    return safeReport;
   } catch (error) {
-    return createFallbackOverview(careerProfile, error.message);
+    const compactReport = await callDeepSeekJson(buildJsonCompletionBody({
+      systemPrompt: overviewSystemPrompt,
+      contract: compactOverviewJsonContract,
+      userPrompt: buildCompactOverviewPrompt(careerProfile, error.message),
+      maxTokens: Math.min(OVERVIEW_MAX_TOKENS, 900),
+      temperature: 0.1,
+    }));
+    const report = ensureOverviewFields(compactReport, careerProfile);
+    assertOverviewQuality(report);
+    report.meta = {
+      ...(report.meta || {}),
+      compactOverviewRetry: true,
+    };
+    return report;
   }
 }
 
