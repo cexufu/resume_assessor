@@ -40,15 +40,45 @@ function escapeHtml(value) {
 
 function fallbackText(value) {
   const text = String(value ?? "").trim();
-  return text || "信息不足，需补充简历证据";
+  return isUsefulText(text) ? text : "";
 }
 
 function firstText(...values) {
   for (const value of values) {
-    const text = String(value ?? "").trim();
+    const text = fallbackText(value);
     if (text) return text;
   }
-  return "信息不足，需补充简历证据";
+  return "";
+}
+
+function isUsefulText(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text === "--") return false;
+  return !/(^信息不足$|信息不足，?需补充|需补充简历证据|当前简历证据不足|没有返回有效内容)/.test(text);
+}
+
+function setResultText(selector, value) {
+  const element = qs(selector);
+  const text = fallbackText(value);
+  if (element) element.textContent = text;
+  return Boolean(text);
+}
+
+function setSectionVisibleByChild(selector, isVisible) {
+  const child = qs(selector);
+  const section = child?.closest(".result-section");
+  if (section) section.hidden = !isVisible;
+}
+
+function setArticleVisibleByChild(selector, isVisible) {
+  const child = qs(selector);
+  const article = child?.closest("article");
+  if (article) article.hidden = !isVisible;
+}
+
+function definitionHtml(label, value) {
+  const text = fallbackText(value);
+  return text ? `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(text)}</dd>` : "";
 }
 
 function showToast(message) {
@@ -399,6 +429,11 @@ function renderReport(report) {
   renderShortcomings(report.shortcomings || {});
   renderImprovementAdvice(report.improvementAdvice || {});
   renderModuleRecommendations(report.moduleRecommendations);
+
+  const visibleSections = document.querySelectorAll("#reportContent .result-section:not([hidden])").length;
+  if (!visibleSections) {
+    showPartialState("首页总览没有可展示的有效字段。");
+  }
 }
 
 function renderIdentitySnapshot(report) {
@@ -407,51 +442,60 @@ function renderIdentitySnapshot(report) {
   const snapshot = report.identitySnapshot || {};
   const topStrength = Array.isArray(profile.strengths) ? profile.strengths[0] || {} : {};
   const topWeakness = Array.isArray(profile.weaknesses) ? profile.weaknesses[0] || {} : {};
-  qs("#identityWho").textContent = firstText(
+  const hasWho = setResultText("#identityWho", firstText(
     snapshot.who,
     report.capabilityDiagnosis?.coreAbility,
     topStrength.name ? `一个正在把“${topStrength.name}”转成职业资产的人` : "",
     basic.major,
-  );
-  qs("#identityDestination").textContent = firstText(
+  ));
+  const hasDestination = setResultText("#identityDestination", firstText(
     snapshot.destination,
     basic.targetDirection,
     basic.targetGoal,
-    "先从可验证的小方向开始探索，而不是一次决定终身方向",
-  );
-  qs("#identityStage").textContent = firstText(
+  ));
+  const hasStage = setResultText("#identityStage", firstText(
     snapshot.stage,
     topWeakness.name ? `已有一些证据，但“${topWeakness.name}”仍需要补齐` : "",
     report.peerScore?.explanation,
-  );
+  ));
+  setSectionVisibleByChild("#identityWho", hasWho || hasDestination || hasStage);
 }
 
 function renderComfort(report) {
-  qs("#comfortIntro").textContent = fallbackText(
-    report.comfortIntro || "你不是没有方向，只是还需要把已有经历重新翻译成更清楚的可能性。"
-  );
-  qs("#closingEncouragement").textContent = fallbackText(
-    report.closingEncouragement || "先不用急着一次选对，把最小的一步走出来，方向会在行动里变得更清楚。"
-  );
+  const hasComfort = setResultText("#comfortIntro", report.comfortIntro);
+  setSectionVisibleByChild("#comfortIntro", hasComfort);
 }
 
 function renderCapabilityDiagnosis(diagnosis) {
-  qs("#coreAbility").textContent = fallbackText(diagnosis.coreAbility);
-  qs("#abilityEvidence").textContent = fallbackText(diagnosis.evidence);
-  qs("#expressionGap").textContent = fallbackText(diagnosis.expressionGap);
-  qs("#nextProof").textContent = fallbackText(diagnosis.nextProof);
+  const hasCoreAbility = setResultText("#coreAbility", diagnosis.coreAbility);
+  const hasEvidence = setResultText("#abilityEvidence", diagnosis.evidence);
+  const hasExpressionGap = setResultText("#expressionGap", diagnosis.expressionGap);
+  const hasNextProof = setResultText("#nextProof", diagnosis.nextProof);
+  setArticleVisibleByChild("#coreAbility", hasCoreAbility);
+  setArticleVisibleByChild("#abilityEvidence", hasEvidence);
+  setArticleVisibleByChild("#expressionGap", hasExpressionGap);
+  setArticleVisibleByChild("#nextProof", hasNextProof);
+  setSectionVisibleByChild("#coreAbility", hasCoreAbility || hasEvidence || hasExpressionGap || hasNextProof);
 }
 
 function renderPeerScore(peerScore) {
-  const rawScore = Number(peerScore.score);
+  const scoreInput = peerScore.score;
+  const rawScore = Number(scoreInput);
   const explanation = String(peerScore.explanation || "");
-  const shouldDeferScore = !Number.isFinite(rawScore) || (rawScore === 0 && /信息不足|补充|无法|不足以/.test(explanation));
+  const hasExplanation = isUsefulText(explanation);
+  const hasScore = scoreInput !== null && scoreInput !== "" && Number.isFinite(rawScore) && rawScore > 0;
+  if (!hasScore && !hasExplanation) {
+    setSectionVisibleByChild("#scoreValue", false);
+    return;
+  }
+  setSectionVisibleByChild("#scoreValue", true);
+  const shouldDeferScore = !hasScore || /信息不足|补充|无法|不足以/.test(explanation);
   qs(".score-number").classList.toggle("pending", shouldDeferScore);
 
   if (shouldDeferScore) {
     qs("#scoreValue").textContent = "待评估";
     qs("#scoreBar").style.width = "0";
-    qs("#peerExplanation").textContent = fallbackText(peerScore.explanation || "首页信息不足以给出可靠评分，建议进入深度页补充目标和证据。");
+    qs("#peerExplanation").textContent = fallbackText(peerScore.explanation);
     return;
   }
 
@@ -463,29 +507,45 @@ function renderPeerScore(peerScore) {
 }
 
 function renderAbilityFields(items) {
-  const safeItems = normalizeArray(items, 3);
+  const safeItems = Array.isArray(items)
+    ? items.filter((item) => isUsefulText(item?.name) && (isUsefulText(item?.currentEvidence) || isUsefulText(item?.usableScenes))).slice(0, 3)
+    : [];
+  setSectionVisibleByChild("#abilityFields", safeItems.length > 0);
+  if (!safeItems.length) {
+    qs("#abilityFields").innerHTML = "";
+    return;
+  }
   qs("#abilityFields").innerHTML = safeItems.map((item, index) => `
     <article class="result-card">
       <span class="card-index">${index + 1}</span>
       <h4>${escapeHtml(fallbackText(item.name))}</h4>
       <dl>
-        <dt>简历证据</dt>
-        <dd>${escapeHtml(fallbackText(item.currentEvidence))}</dd>
-        <dt>可用场景</dt>
-        <dd>${escapeHtml(fallbackText(item.usableScenes))}</dd>
+        ${definitionHtml("简历证据", item.currentEvidence)}
+        ${definitionHtml("可用场景", item.usableScenes)}
       </dl>
     </article>
   `).join("");
 }
 
 function renderPerspectiveUpgrade(perspective) {
-  qs("#currentLayer").textContent = fallbackText(perspective.currentLayer);
-  qs("#nextLayer").textContent = fallbackText(perspective.nextLayer);
-  qs("#perspectiveExample").textContent = fallbackText(perspective.example);
+  const hasCurrentLayer = setResultText("#currentLayer", perspective.currentLayer);
+  const hasNextLayer = setResultText("#nextLayer", perspective.nextLayer);
+  const hasExample = setResultText("#perspectiveExample", perspective.example);
+  setArticleVisibleByChild("#currentLayer", hasCurrentLayer);
+  setArticleVisibleByChild("#nextLayer", hasNextLayer);
+  setArticleVisibleByChild("#perspectiveExample", hasExample);
+  setSectionVisibleByChild("#currentLayer", hasCurrentLayer || hasNextLayer || hasExample);
 }
 
 function renderDirections(items) {
-  const safeItems = normalizeArray(items, 3);
+  const safeItems = Array.isArray(items)
+    ? items.filter((item) => isUsefulText(item?.title) && isUsefulText(item?.explanation)).slice(0, 3)
+    : [];
+  setSectionVisibleByChild("#directionList", safeItems.length > 0);
+  if (!safeItems.length) {
+    qs("#directionList").innerHTML = "";
+    return;
+  }
   qs("#directionList").innerHTML = safeItems.map((item, index) => `
     <article class="result-card direction-card">
       <span class="card-index">${index + 1}</span>
@@ -496,43 +556,37 @@ function renderDirections(items) {
 }
 
 function renderRouteCards(items) {
-  const directions = Array.isArray(state.report?.suitableDirections) ? state.report.suitableDirections : [];
-  const defaults = [
-    { type: "salary", label: "最高薪路线", title: directions[0]?.title || "进入职业方向页细化", why: directions[0]?.explanation || "首页信息不足以可靠比较薪资路线，需要补目标行业、城市和薪资预期。", risk: "不要把泛泛高薪当成结论。", nextStep: "进入职业方向页，补充目标岗位和城市。" },
-    { type: "speed", label: "最快上岸路线", title: directions[1]?.title || "进入职业方向页细化", why: directions[1]?.explanation || "需要比较现有经历和岗位 JD 的距离，才能判断最快路径。", risk: "过快上岸可能牺牲长期成长。", nextStep: "补充你愿意接受的岗位层级和转行边界。" },
-    { type: "ease", label: "最轻松路线", title: "进入职业方向页细化", why: "需要知道你不想承受的成本，才能判断低阻力路径。", risk: "低阻力不等于长期适合。", nextStep: "补充你不想做的工作类型和可接受强度。" },
-    { type: "balance", label: "均衡路线", title: directions[2]?.title || "进入职业方向页细化", why: directions[2]?.explanation || "需要把薪资、成长、上岸速度和个人偏好放在一起权衡。", risk: "不排序就容易变成什么都想要。", nextStep: "进入职业方向页做路线排序。" },
-  ];
-  const safeItems = Array.isArray(items) && items.length ? items.slice(0, 4) : defaults;
-  const normalized = defaults.map((preset, index) => ({
-    ...preset,
-    ...(safeItems[index] || {}),
-    label: safeItems[index]?.label || preset.label,
-  }));
+  const safeItems = Array.isArray(items)
+    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.why || item?.reason) || isUsefulText(item?.risk) || isUsefulText(item?.nextStep || item?.firstStep))).slice(0, 4)
+    : [];
+  setSectionVisibleByChild("#routeCards", safeItems.length >= 4);
+  if (safeItems.length < 4) {
+    qs("#routeCards").innerHTML = "";
+    return;
+  }
 
-  qs("#routeCards").innerHTML = normalized.map((item, index) => `
+  qs("#routeCards").innerHTML = safeItems.map((item, index) => `
     <article class="result-card route-card">
-      <span class="route-label">${escapeHtml(fallbackText(item.label))}</span>
+      <span class="route-label">${escapeHtml(fallbackText(item.label) || `路线 ${index + 1}`)}</span>
       <h4>${escapeHtml(fallbackText(item.title))}</h4>
       <dl>
-        <dt>为什么</dt>
-        <dd>${escapeHtml(fallbackText(item.why || item.reason))}</dd>
-        <dt>风险</dt>
-        <dd>${escapeHtml(fallbackText(item.risk))}</dd>
-        <dt>下一步</dt>
-        <dd>${escapeHtml(fallbackText(item.nextStep || item.firstStep))}</dd>
+        ${definitionHtml("为什么", item.why || item.reason)}
+        ${definitionHtml("风险", item.risk)}
+        ${definitionHtml("下一步", item.nextStep || item.firstStep)}
       </dl>
     </article>
   `).join("");
 }
 
 function renderNewPossibilities(items) {
-  const safeItems = Array.isArray(items) && items.length
-    ? items.slice(0, 2)
-    : [
-      { title: "相邻迁移方向", reason: "把已有经历换一种表达，可能能连接到更宽的岗位场景。", firstTry: "选一个目标岗位，整理 3 条能对应岗位要求的经历证据。" },
-      { title: "能力再包装方向", reason: "你已有的能力未必只能服务于原路径，也可能成为跨领域入口。", firstTry: "把一段经历改写成问题、行动、结果三句话。" },
-    ];
+  const safeItems = Array.isArray(items)
+    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.reason) || isUsefulText(item?.firstTry))).slice(0, 2)
+    : [];
+  setSectionVisibleByChild("#newPossibilities", safeItems.length > 0);
+  if (!safeItems.length) {
+    qs("#newPossibilities").innerHTML = "";
+    return;
+  }
 
   qs("#newPossibilities").innerHTML = safeItems.map((item, index) => `
     <article class="result-card direction-card possibility-card">
@@ -548,17 +602,30 @@ function renderNewPossibilities(items) {
 }
 
 function renderShortcomings(shortcomings) {
-  qs("#shortcomingsSummary").textContent = fallbackText(shortcomings.summary);
+  const hasSummary = setResultText("#shortcomingsSummary", shortcomings.summary);
+  qs("#shortcomingsSummary").hidden = !hasSummary;
   const items = Array.isArray(shortcomings.items) && shortcomings.items.length
-    ? shortcomings.items.slice(0, 3)
-    : ["信息不足，需补充简历证据"];
+    ? shortcomings.items.filter(isUsefulText).slice(0, 3)
+    : [];
+  setSectionVisibleByChild("#shortcomingsSummary", hasSummary || items.length > 0);
+  if (!items.length && !hasSummary) {
+    qs("#shortcomingsList").innerHTML = "";
+    return;
+  }
   qs("#shortcomingsList").innerHTML = items.map((item) => `<li>${escapeHtml(fallbackText(item))}</li>`).join("");
 }
 
 function renderImprovementAdvice(advice) {
-  qs("#neededAbility").textContent = fallbackText(advice.mostNeededAbility);
-  qs("#missingExperience").textContent = fallbackText(advice.missingExperience);
-  qs("#shortAdvice").textContent = fallbackText(advice.shortAdvice);
+  const hasNeededAbility = setResultText("#neededAbility", advice.mostNeededAbility);
+  const hasMissingExperience = setResultText("#missingExperience", advice.missingExperience);
+  const hasShortAdvice = setResultText("#shortAdvice", advice.shortAdvice);
+  const hasClosing = setResultText("#closingEncouragement", state.report?.closingEncouragement);
+  const hasAdvice = hasNeededAbility || hasMissingExperience || hasShortAdvice;
+  setArticleVisibleByChild("#neededAbility", hasNeededAbility);
+  setArticleVisibleByChild("#missingExperience", hasMissingExperience);
+  setArticleVisibleByChild("#shortAdvice", hasShortAdvice);
+  qs("#closingEncouragement").hidden = !hasAdvice || !hasClosing;
+  setSectionVisibleByChild("#neededAbility", hasAdvice);
 }
 
 function renderModuleRecommendations(items) {
@@ -572,13 +639,14 @@ function renderModuleRecommendations(items) {
     study: "./study.html",
     ability: "./ability.html",
   };
-  const safeItems = Array.isArray(items) && items.length
-    ? items.slice(0, 3)
-    : [
-      { module: "career", reason: "先判断适合岗位和求职路径", suggestedQuestion: "我应该优先投哪些岗位？" },
-      { module: "study", reason: "补充留学和专业选择依据", suggestedQuestion: "我适合申请哪些专业方向？" },
-      { module: "ability", reason: "把优势和短板拆成可训练能力", suggestedQuestion: "我最该补哪几项能力？" },
-    ];
+  const safeItems = Array.isArray(items)
+    ? items.filter((item) => hrefs[item?.module] && (isUsefulText(item?.reason) || isUsefulText(item?.suggestedQuestion))).slice(0, 3)
+    : [];
+  setSectionVisibleByChild("#moduleRecommendations", safeItems.length > 0);
+  if (!safeItems.length) {
+    qs("#moduleRecommendations").innerHTML = "";
+    return;
+  }
 
   qs("#moduleRecommendations").innerHTML = safeItems.map((item, index) => `
     <article class="result-card direction-card">

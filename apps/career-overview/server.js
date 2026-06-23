@@ -58,7 +58,7 @@ const jsonOnlyContract = [
   "只返回一个合法 JSON 对象。",
   "不要 markdown，不要代码块，不要解释过程。",
   "不要编造用户没有提供的经历、成绩、学校、公司、论文、奖项或语言成绩。",
-  "信息不足时写“信息不足”，不要强行推断。",
+  "证据不足时不要强行推断；可省略的字段留空或返回空数组，必须说明缺口时写具体缺什么，不要只写“信息不足”。",
   "所有文本使用中文，句子保持短。",
 ].join("\n");
 
@@ -108,18 +108,19 @@ const overviewSystemPrompt = [
 ].join("\n");
 
 const overviewJsonContract = [
-  "JSON 顶层字段必须为：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, routeCards, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
+  "JSON 顶层字段优先包含：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, routeCards, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
+  "如果某个可选模块没有足够 career_profile 证据，可以省略该字段或返回空数组/空对象；不要用占位句补齐页面。",
   "identitySnapshot：字段 who, destination, stage。分别回答“你是谁”“你想去哪”“你到哪一步了”，每项不超过 70 个中文字符。",
   "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。必须像产品诊断，不要像简历摘要；coreAbility 要命名为独特能力标签，例如“内容安全体系化设计能力”“风险信号翻译能力”；evidence 必须引用 career_profile 的具体项目或事实；expressionGap 必须指出为什么招聘方看不懂；nextProof 必须是一个可执行补证动作。",
-  "peerScore：字段 score, explanation。score 为 0-10。",
-  "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。",
-  "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题。",
+  "peerScore：字段 score, explanation。score 为 0-10；无法可靠比较时 score 用 null，explanation 写清缺少哪类对照信息。",
+  "abilityFields：0-3 项，每项字段 name, currentEvidence, usableScenes。有具体证据才输出。",
+  "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题；没有具体例子可省略。",
   "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写“高薪潜力方向”“最快可尝试方向”“低阻力过渡方向”“平衡成长方向”这类占位词。",
   "routeCards 每项都必须基于 career_profile 的证据，why/risk/nextStep 必须具体到岗位场景、证据缺口或 7 天动作。",
   "suitableDirections：3 项，每项字段 title, explanation。title 必须是具体岗位方向或职业场景。",
-  "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性。",
-  "shortcomings：字段 summary, items。items 最多 3 条。",
-  "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice。",
+  "newPossibilities：0-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性；必须基于证据。",
+  "shortcomings：字段 summary, items。items 最多 3 条；只输出可被证据支持的短板。",
+  "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice；只输出可被证据支持的建议。",
   "comfortIntro：开篇安慰总起，1-2 句，必须具体、不空泛。",
   "closingEncouragement：结尾安慰，1 句，强调可以从最小行动开始。",
   "moduleRecommendations：3 项，每项字段 module, reason, suggestedQuestion。module 只能是 career, study, ability。",
@@ -130,7 +131,7 @@ const compactOverviewJsonContract = [
   "JSON 顶层字段必须为：identitySnapshot, capabilityDiagnosis, peerScore, routeCards, suitableDirections, moduleRecommendations。",
   "identitySnapshot 字段：who, destination, stage。",
   "capabilityDiagnosis 字段：coreAbility, evidence, expressionGap, nextProof。必须具体引用 career_profile 证据。",
-  "peerScore 字段：score, explanation。score 为 0-10；如果信息不足，也要给出谨慎分数和原因，不要省略。",
+  "peerScore 字段：score, explanation。score 为 0-10；无法可靠比较时 score 用 null，explanation 写清缺少哪类对照信息。",
   "routeCards 必须 4 项，每项字段：label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写泛泛占位词。",
   "suitableDirections 必须 3 项，每项字段：title, explanation。",
   "moduleRecommendations 必须 3 项，每项字段：module, reason, suggestedQuestion。module 只能是 career, study, ability。",
@@ -564,10 +565,7 @@ function ensureOverviewFields(report, careerProfile) {
   const safeReport = report && typeof report === "object" ? report : {};
   const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
   const weaknesses = Array.isArray(careerProfile?.weaknesses) ? careerProfile.weaknesses : [];
-  const evidence = Array.isArray(careerProfile?.evidence) ? careerProfile.evidence : [];
   const expressionProblems = Array.isArray(careerProfile?.expressionProblems) ? careerProfile.expressionProblems : [];
-  const abilitySignals = Array.isArray(careerProfile?.abilitySignals) ? careerProfile.abilitySignals : [];
-  const careerSignals = Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : [];
   const basic = careerProfile?.basic || {};
 
   if (!safeReport.identitySnapshot || typeof safeReport.identitySnapshot !== "object") {
@@ -590,61 +588,6 @@ function ensureOverviewFields(report, careerProfile) {
         "处在从经历整理走向方向验证的阶段",
       ]),
     };
-  }
-
-  if (!safeReport.capabilityDiagnosis || typeof safeReport.capabilityDiagnosis !== "object") {
-    const topStrength = firstItem(strengths);
-    safeReport.capabilityDiagnosis = {
-      coreAbility: firstText([topStrength.name, abilitySignals[0], "可迁移能力仍需从经历中提炼"]),
-      evidence: firstText([topStrength.evidence, evidence[0], "当前简历证据不足，需要补充具体任务、产出和结果"]),
-      expressionGap: firstText([expressionProblems[0], firstItem(weaknesses).evidence, "需要把经历写成能力证据，而不是只列参与过什么"]),
-      nextProof: "补充一个具体案例：你负责什么、怎么判断、怎么设计动作、最后带来什么变化。",
-    };
-  }
-
-  if (!safeReport.perspectiveUpgrade || typeof safeReport.perspectiveUpgrade !== "object") {
-    safeReport.perspectiveUpgrade = {
-      currentLayer: "当前更像执行到战术之间：已经有经历和动作，但需要把背后的目标、判断和取舍说清楚。",
-      nextLayer: "下一层视角是从完成任务升级为设计打法：解释为什么做、如何布局、如何验证结果。",
-      example: firstText([
-        careerSignals[0] ? `可以把“${careerSignals[0]}”继续追问成目标、受众、动作和结果。` : "",
-        "例如不要只写做过活动，而要说明这次活动想证明什么、影响谁、为什么这样设计。",
-      ]),
-    };
-  }
-
-  if (!Array.isArray(safeReport.routeCards) || safeReport.routeCards.length < 4) {
-    const directions = Array.isArray(safeReport.suitableDirections) ? safeReport.suitableDirections : [];
-    safeReport.routeCards = [
-      {
-        label: "最高薪路线",
-        title: firstText([directions[0]?.title], "信息不足"),
-        why: firstText([directions[0]?.explanation], "信息不足"),
-        risk: "信息不足",
-        nextStep: "进入职业方向页补充目标岗位和城市。",
-      },
-      {
-        label: "最快上岸路线",
-        title: firstText([directions[1]?.title], "信息不足"),
-        why: firstText([directions[1]?.explanation], "信息不足"),
-        risk: "信息不足",
-        nextStep: "进入职业方向页补充可接受的岗位层级。",
-      },
-      {
-        label: "最轻松路线",
-        title: "信息不足",
-        why: "信息不足",
-        risk: "信息不足",
-        nextStep: "进入职业方向页补充不想承受的成本。",
-      },
-      {
-        label: "均衡路线",
-        title: firstText([directions[2]?.title], "信息不足"),
-        why: firstText([directions[2]?.explanation], "信息不足"),
-        risk: "信息不足",
-        nextStep: "进入职业方向页做路线排序。",
-      },
-    ];
   }
 
   return safeReport;
@@ -1253,13 +1196,26 @@ function serveStatic(req, res) {
     return;
   }
 
+  const ext = path.extname(filePath);
+  const baseName = path.basename(filePath);
+  const blockedFiles = new Set([".env", "server.js", "package.json", "package-lock.json"]);
+  if (
+    blockedFiles.has(baseName)
+    || baseName.startsWith(".")
+    || filePath.includes(`${path.sep}node_modules${path.sep}`)
+    || !Object.prototype.hasOwnProperty.call(mimeTypes, ext)
+  ) {
+    res.writeHead(404);
+    res.end("Not found");
+    return;
+  }
+
   fs.readFile(filePath, (error, content) => {
     if (error) {
       res.writeHead(404);
       res.end("Not found");
       return;
     }
-    const ext = path.extname(filePath);
     res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
     res.end(content);
   });
