@@ -81,6 +81,10 @@ function definitionHtml(label, value) {
   return text ? `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(text)}</dd>` : "";
 }
 
+function hasUsefulFields(item, fields) {
+  return fields.some((field) => isUsefulText(item?.[field]));
+}
+
 function showToast(message) {
   const toast = qs("#toast");
   toast.textContent = message;
@@ -508,7 +512,7 @@ function renderPeerScore(peerScore) {
 
 function renderAbilityFields(items) {
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => isUsefulText(item?.name) && (isUsefulText(item?.currentEvidence) || isUsefulText(item?.usableScenes))).slice(0, 3)
+    ? items.filter((item) => hasUsefulFields(item, ["name", "currentEvidence", "usableScenes"])).slice(0, 3)
     : [];
   setSectionVisibleByChild("#abilityFields", safeItems.length > 0);
   if (!safeItems.length) {
@@ -518,7 +522,7 @@ function renderAbilityFields(items) {
   qs("#abilityFields").innerHTML = safeItems.map((item, index) => `
     <article class="result-card">
       <span class="card-index">${index + 1}</span>
-      <h4>${escapeHtml(fallbackText(item.name))}</h4>
+      ${fallbackText(item.name) ? `<h4>${escapeHtml(fallbackText(item.name))}</h4>` : ""}
       <dl>
         ${definitionHtml("简历证据", item.currentEvidence)}
         ${definitionHtml("可用场景", item.usableScenes)}
@@ -539,7 +543,7 @@ function renderPerspectiveUpgrade(perspective) {
 
 function renderDirections(items) {
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => isUsefulText(item?.title) && isUsefulText(item?.explanation)).slice(0, 3)
+    ? items.filter((item) => hasUsefulFields(item, ["title", "explanation"])).slice(0, 3)
     : [];
   setSectionVisibleByChild("#directionList", safeItems.length > 0);
   if (!safeItems.length) {
@@ -549,18 +553,18 @@ function renderDirections(items) {
   qs("#directionList").innerHTML = safeItems.map((item, index) => `
     <article class="result-card direction-card">
       <span class="card-index">${index + 1}</span>
-      <h4>${escapeHtml(fallbackText(item.title))}</h4>
-      <p>${escapeHtml(fallbackText(item.explanation))}</p>
+      ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
+      ${fallbackText(item.explanation) ? `<p>${escapeHtml(fallbackText(item.explanation))}</p>` : ""}
     </article>
   `).join("");
 }
 
 function renderRouteCards(items) {
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.why || item?.reason) || isUsefulText(item?.risk) || isUsefulText(item?.nextStep || item?.firstStep))).slice(0, 4)
+    ? items.filter((item) => isUsefulText(item?.title) || isUsefulText(item?.why || item?.reason) || isUsefulText(item?.risk) || isUsefulText(item?.nextStep || item?.firstStep)).slice(0, 4)
     : [];
-  setSectionVisibleByChild("#routeCards", safeItems.length >= 4);
-  if (safeItems.length < 4) {
+  setSectionVisibleByChild("#routeCards", safeItems.length > 0);
+  if (!safeItems.length) {
     qs("#routeCards").innerHTML = "";
     return;
   }
@@ -568,7 +572,7 @@ function renderRouteCards(items) {
   qs("#routeCards").innerHTML = safeItems.map((item, index) => `
     <article class="result-card route-card">
       <span class="route-label">${escapeHtml(fallbackText(item.label) || `路线 ${index + 1}`)}</span>
-      <h4>${escapeHtml(fallbackText(item.title))}</h4>
+      ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
       <dl>
         ${definitionHtml("为什么", item.why || item.reason)}
         ${definitionHtml("风险", item.risk)}
@@ -580,7 +584,7 @@ function renderRouteCards(items) {
 
 function renderNewPossibilities(items) {
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.reason) || isUsefulText(item?.firstTry))).slice(0, 2)
+    ? items.filter((item) => hasUsefulFields(item, ["title", "reason", "firstTry"])).slice(0, 2)
     : [];
   setSectionVisibleByChild("#newPossibilities", safeItems.length > 0);
   if (!safeItems.length) {
@@ -591,11 +595,10 @@ function renderNewPossibilities(items) {
   qs("#newPossibilities").innerHTML = safeItems.map((item, index) => `
     <article class="result-card direction-card possibility-card">
       <span class="card-index">${index + 1}</span>
-      <h4>${escapeHtml(fallbackText(item.title))}</h4>
-      <p>${escapeHtml(fallbackText(item.reason))}</p>
+      ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
+      ${fallbackText(item.reason) ? `<p>${escapeHtml(fallbackText(item.reason))}</p>` : ""}
       <dl>
-        <dt>可以先试</dt>
-        <dd>${escapeHtml(fallbackText(item.firstTry))}</dd>
+        ${definitionHtml("可以先试", item.firstTry)}
       </dl>
     </article>
   `).join("");
@@ -652,10 +655,9 @@ function renderModuleRecommendations(items) {
     <article class="result-card direction-card">
       <span class="card-index">${index + 1}</span>
       <h4>${escapeHtml(labels[item.module] || fallbackText(item.module))}</h4>
-      <p>${escapeHtml(fallbackText(item.reason))}</p>
+      ${fallbackText(item.reason) ? `<p>${escapeHtml(fallbackText(item.reason))}</p>` : ""}
       <dl>
-        <dt>建议问题</dt>
-        <dd>${escapeHtml(fallbackText(item.suggestedQuestion))}</dd>
+        ${definitionHtml("建议问题", item.suggestedQuestion)}
       </dl>
       <a class="inline-link" href="${hrefs[item.module] || "./career.html"}">进入分析</a>
     </article>
