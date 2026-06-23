@@ -244,15 +244,28 @@ async function analyze() {
     setChatAvailable(false);
     persistDraft();
     localStorage.removeItem(analysisStorageKey);
-    showLoadingState();
-    const report = await window.ResumeInsightAPI.analyzeResume(payload);
-    state.report = report;
-    state.careerProfile = report.careerProfile || null;
-    state.extractedResumeText = report.extractedResumeText || payload.resumeText;
+    showLoadingState("profile");
+    const profileResult = await window.ResumeInsightAPI.createCareerProfile(payload);
+    state.careerProfile = profileResult.careerProfile || null;
+    state.extractedResumeText = profileResult.extractedResumeText || payload.resumeText;
+    if (!state.careerProfile) throw new Error("没有生成可用的职业画像，请补充简历正文后重试。");
     if (!qs("#resumeText").value.trim() && state.extractedResumeText) {
       qs("#resumeText").value = state.extractedResumeText;
       persistDraft();
     }
+    persistAnalysis({
+      isPartial: true,
+      source: "profile_created",
+    });
+
+    showLoadingState("overview");
+    const report = await window.ResumeInsightAPI.createOverview({
+      careerProfile: state.careerProfile,
+      extractedResumeText: state.extractedResumeText,
+    });
+    state.report = report;
+    state.careerProfile = report.careerProfile || null;
+    state.extractedResumeText = report.extractedResumeText || state.extractedResumeText;
     state.chatHistory = [];
     renderReport(report);
     persistAnalysis();
@@ -267,6 +280,12 @@ async function analyze() {
         error: error.message,
       });
       showPartialState(error.message);
+    } else if (state.careerProfile) {
+      persistAnalysis({
+        isPartial: true,
+        error: error.message,
+      });
+      showPartialState(error.message);
     } else {
       showErrorState(error.message);
     }
@@ -276,18 +295,19 @@ async function analyze() {
   }
 }
 
-function showLoadingState() {
+function showLoadingState(stage = "profile") {
   stopLoadingState();
   qs("#reportContent").hidden = true;
   qs("#emptyState").hidden = false;
+  const isOverview = stage === "overview";
   qs("#emptyState").innerHTML = `
     <div class="loading-card">
-      <strong id="loadingTitle">正在读取你的经历</strong>
-      <p id="loadingMessage">第 1 步：把简历和补充信息压缩成 career_profile，后续页面会复用这份画像。</p>
+      <strong id="loadingTitle">${isOverview ? "正在生成首页总览" : "正在读取你的经历"}</strong>
+      <p id="loadingMessage">${isOverview ? "第 2 步：基于已保存的 career_profile 生成首页判断；如果不稳定，会直接保留画像进入深度页。" : "第 1 步：把简历和补充信息压缩成 career_profile，后续页面会复用这份画像。"}</p>
       <div class="loading-track" aria-hidden="true"><span id="loadingBar"></span></div>
       <ol class="loading-steps">
-        <li id="loadingStepProfile" class="active">压缩职业画像</li>
-        <li id="loadingStepOverview">生成短总览</li>
+        <li id="loadingStepProfile" class="${isOverview ? "done" : "active"}">压缩职业画像</li>
+        <li id="loadingStepOverview" class="${isOverview ? "active" : ""}">生成短总览</li>
         <li id="loadingStepModules">准备深度页面</li>
       </ol>
     </div>
@@ -297,17 +317,18 @@ function showLoadingState() {
     const elapsed = Date.now() - startedAt;
     const bar = qs("#loadingBar");
     if (!bar) return;
-    const progress = Math.min(88, 18 + Math.floor(elapsed / 900));
+    const baseProgress = isOverview ? 54 : 18;
+    const progress = Math.min(isOverview ? 92 : 52, baseProgress + Math.floor(elapsed / 900));
     bar.style.width = `${progress}%`;
-    if (elapsed > 12_000) {
+    if (!isOverview && elapsed > 12_000) {
       qs("#loadingTitle").textContent = "正在生成你的职业坐标";
-      qs("#loadingMessage").textContent = "第 2 步：只基于压缩画像生成首页短总览，不重复读取完整简历。";
+      qs("#loadingMessage").textContent = "正在压缩职业画像。画像成功后会先保存，再生成首页总览。";
       qs("#loadingStepProfile").classList.add("done");
       qs("#loadingStepOverview").classList.add("active");
     }
-    if (elapsed > 30_000) {
+    if (isOverview && elapsed > 25_000) {
       qs("#loadingTitle").textContent = "正在收束结果";
-      qs("#loadingMessage").textContent = "模型输出较慢时请保持页面打开；如果首页总览不够稳定，会保留画像并引导你进入深度页。";
+      qs("#loadingMessage").textContent = "首页总览仍在生成。若它没有达到稳定输出标准，系统会保留画像并开放深度页。";
       qs("#loadingStepOverview").classList.add("done");
       qs("#loadingStepModules").classList.add("active");
     }
@@ -423,7 +444,19 @@ function renderCapabilityDiagnosis(diagnosis) {
 
 function renderPeerScore(peerScore) {
   const rawScore = Number(peerScore.score);
-  const score = Number.isFinite(rawScore) ? Math.max(0, Math.min(10, rawScore)) : 0;
+  const explanation = String(peerScore.explanation || "");
+  const shouldDeferScore = !Number.isFinite(rawScore) || (rawScore === 0 && /信息不足|补充|无法|不足以/.test(explanation));
+  qs(".score-number").classList.toggle("pending", shouldDeferScore);
+
+  if (shouldDeferScore) {
+    qs("#scoreValue").textContent = "待评估";
+    qs("#scoreBar").style.width = "0";
+    qs("#peerExplanation").textContent = fallbackText(peerScore.explanation || "首页信息不足以给出可靠评分，建议进入深度页补充目标和证据。");
+    return;
+  }
+
+  const score = Math.max(0, Math.min(10, rawScore));
+  qs(".score-number").classList.remove("pending");
   qs("#scoreValue").textContent = Number.isInteger(score) ? String(score) : score.toFixed(1);
   qs("#scoreBar").style.width = `${score * 10}%`;
   qs("#peerExplanation").textContent = fallbackText(peerScore.explanation);

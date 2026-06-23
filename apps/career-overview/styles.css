@@ -593,6 +593,15 @@ textarea {
   letter-spacing: 0;
 }
 
+.score-number.pending strong {
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.score-number.pending span {
+  display: none;
+}
+
 .score-number span {
   color: var(--muted);
   font-size: 18px;

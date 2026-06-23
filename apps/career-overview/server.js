@@ -31,6 +31,8 @@ const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || "").trim();
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 120000);
+const OVERVIEW_TIMEOUT_MS = Number(process.env.OVERVIEW_TIMEOUT_MS || 22000);
+const OVERVIEW_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_REPAIR_TIMEOUT_MS || 6000);
 const PROFILE_MAX_TOKENS = Number(process.env.PROFILE_MAX_TOKENS || 1100);
 const OVERVIEW_MAX_TOKENS = Number(process.env.OVERVIEW_MAX_TOKENS || 1300);
 const MODULE_MAX_TOKENS = Number(process.env.MODULE_MAX_TOKENS || 1900);
@@ -125,9 +127,10 @@ const overviewJsonContract = [
 ].join("\n");
 
 const compactOverviewJsonContract = [
-  "JSON 顶层字段必须为：identitySnapshot, capabilityDiagnosis, routeCards, suitableDirections, moduleRecommendations。",
+  "JSON 顶层字段必须为：identitySnapshot, capabilityDiagnosis, peerScore, routeCards, suitableDirections, moduleRecommendations。",
   "identitySnapshot 字段：who, destination, stage。",
   "capabilityDiagnosis 字段：coreAbility, evidence, expressionGap, nextProof。必须具体引用 career_profile 证据。",
+  "peerScore 字段：score, explanation。score 为 0-10；如果信息不足，也要给出谨慎分数和原因，不要省略。",
   "routeCards 必须 4 项，每项字段：label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写泛泛占位词。",
   "suitableDirections 必须 3 项，每项字段：title, explanation。",
   "moduleRecommendations 必须 3 项，每项字段：module, reason, suggestedQuestion。module 只能是 career, study, ability。",
@@ -492,6 +495,10 @@ function buildResumeChatMessages(payload) {
 }
 
 async function callDeepSeekJson(requestBody) {
+  return callDeepSeekJsonWithTimeout(requestBody, AI_TIMEOUT_MS);
+}
+
+async function callDeepSeekJsonWithTimeout(requestBody, timeoutMs, repairTimeoutMs = Math.min(timeoutMs, AI_TIMEOUT_MS)) {
 
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: "POST",
@@ -500,7 +507,7 @@ async function callDeepSeekJson(requestBody) {
       Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
     },
     body: JSON.stringify(requestBody),
-    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
@@ -510,7 +517,7 @@ async function callDeepSeekJson(requestBody) {
 
   const data = await response.json();
   const outputText = data.choices?.[0]?.message?.content || "";
-  return parseOrRepairJson(outputText);
+  return parseOrRepairJson(outputText, repairTimeoutMs);
 }
 
 async function createCareerProfile(payload, resumeText, file) {
@@ -687,24 +694,24 @@ function ensureModuleFields(moduleType, report, careerProfile, moduleInput) {
 
 async function createOverviewReport(careerProfile) {
   try {
-    const report = await callDeepSeekJson(buildJsonCompletionBody({
+    const report = await callDeepSeekJsonWithTimeout(buildJsonCompletionBody({
       systemPrompt: overviewSystemPrompt,
       contract: overviewJsonContract,
       userPrompt: buildOverviewPrompt(careerProfile),
       maxTokens: OVERVIEW_MAX_TOKENS,
       temperature: 0.2,
-    }));
+    }), OVERVIEW_TIMEOUT_MS, OVERVIEW_REPAIR_TIMEOUT_MS);
     const safeReport = ensureOverviewFields(report, careerProfile);
     assertOverviewQuality(safeReport);
     return safeReport;
   } catch (error) {
-    const compactReport = await callDeepSeekJson(buildJsonCompletionBody({
+    const compactReport = await callDeepSeekJsonWithTimeout(buildJsonCompletionBody({
       systemPrompt: overviewSystemPrompt,
       contract: compactOverviewJsonContract,
       userPrompt: buildCompactOverviewPrompt(careerProfile, error.message),
       maxTokens: Math.min(OVERVIEW_MAX_TOKENS, 900),
       temperature: 0.1,
-    }));
+    }), Math.min(OVERVIEW_TIMEOUT_MS, 15000), Math.min(OVERVIEW_REPAIR_TIMEOUT_MS, 5000));
     const report = ensureOverviewFields(compactReport, careerProfile);
     assertOverviewQuality(report);
     report.meta = {
@@ -796,13 +803,13 @@ async function streamDeepSeekChat(payload, res) {
   res.end();
 }
 
-async function parseOrRepairJson(outputText) {
+async function parseOrRepairJson(outputText, repairTimeoutMs = AI_TIMEOUT_MS) {
   const jsonText = extractJsonText(outputText);
   try {
     return JSON.parse(jsonText);
   } catch (error) {
     try {
-      return await repairJsonWithDeepSeek(jsonText, error.message);
+      return await repairJsonWithDeepSeek(jsonText, error.message, repairTimeoutMs);
     } catch (repairError) {
       const preview = jsonText.slice(Math.max(0, Number(error.message.match(/position (\d+)/)?.[1] || 0) - 180), Number(error.message.match(/position (\d+)/)?.[1] || 360) + 180);
       throw new Error(`DeepSeek returned invalid JSON: ${error.message}. Repair failed: ${repairError.message}. Preview: ${preview}`);
@@ -810,7 +817,7 @@ async function parseOrRepairJson(outputText) {
   }
 }
 
-async function repairJsonWithDeepSeek(badJson, parseError) {
+async function repairJsonWithDeepSeek(badJson, parseError, timeoutMs = AI_TIMEOUT_MS) {
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
@@ -838,7 +845,7 @@ async function repairJsonWithDeepSeek(badJson, parseError) {
         },
       ],
     }),
-    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
@@ -932,6 +939,126 @@ async function handleAnalyzeResume(req, res) {
             moduleMaxTokens: MODULE_MAX_TOKENS,
             chatMaxTokens: CHAT_MAX_TOKENS,
           },
+        },
+      });
+    }
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCreateCareerProfile(req, res) {
+  try {
+    const payload = await readJson(req);
+    let resumeText = normalizeText(payload.resumeText);
+    const file = normalizeFile(payload.file);
+
+    if (!resumeText && file) {
+      resumeText = await extractTextFromFile(file);
+    }
+
+    if (!resumeText && !file) {
+      sendJson(res, 400, { error: "请上传简历文件，或粘贴简历文本。" });
+      return;
+    }
+
+    if (!resumeText) {
+      sendJson(res, 400, { error: "没有从简历文件中提取到可分析文本，请换一个文件或粘贴正文。" });
+      return;
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+      sendJson(res, 500, {
+        error: "DEEPSEEK_API_KEY is not configured on the local server. This product requires DeepSeek AI analysis.",
+        code: "missing_api_key",
+      });
+      return;
+    }
+
+    try {
+      const careerProfile = await createCareerProfile(payload, resumeText, file);
+      sendJson(res, 200, {
+        careerProfile,
+        extractedResumeText: resumeText,
+        meta: {
+          mode: "ai",
+          provider: "deepseek",
+          model: DEEPSEEK_MODEL,
+          baseUrl: DEEPSEEK_BASE_URL,
+          analyzedAt: new Date().toISOString(),
+          source: file ? "file" : "text",
+          fileName: file?.name || null,
+          extractedTextChars: resumeText.length,
+          profileInputChars: Math.min(resumeText.length, MAX_PROFILE_RESUME_TEXT_CHARS),
+          tokenBudget: {
+            profileMaxTokens: PROFILE_MAX_TOKENS,
+            overviewMaxTokens: OVERVIEW_MAX_TOKENS,
+            moduleMaxTokens: MODULE_MAX_TOKENS,
+            chatMaxTokens: CHAT_MAX_TOKENS,
+          },
+        },
+      });
+    } catch (error) {
+      sendJson(res, 502, {
+        error: error.message,
+        code: "profile_analysis_failed",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+      });
+    }
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCreateOverview(req, res) {
+  try {
+    const payload = await readJson(req);
+
+    if (!payload.careerProfile || typeof payload.careerProfile !== "object") {
+      sendJson(res, 400, { error: "请先完成职业画像生成。" });
+      return;
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+      sendJson(res, 500, {
+        error: "DEEPSEEK_API_KEY is not configured on the local server. This product requires DeepSeek AI analysis.",
+        code: "missing_api_key",
+      });
+      return;
+    }
+
+    try {
+      const report = await createOverviewReport(payload.careerProfile);
+      report.meta = {
+        ...(report.meta || {}),
+        mode: "ai",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        analyzedAt: new Date().toISOString(),
+        tokenBudget: {
+          profileMaxTokens: PROFILE_MAX_TOKENS,
+          overviewMaxTokens: OVERVIEW_MAX_TOKENS,
+          moduleMaxTokens: MODULE_MAX_TOKENS,
+          chatMaxTokens: CHAT_MAX_TOKENS,
+        },
+      };
+      report.careerProfile = payload.careerProfile;
+      report.extractedResumeText = normalizeText(payload.extractedResumeText);
+      sendJson(res, 200, report);
+    } catch (error) {
+      sendJson(res, 422, {
+        error: "首页总览没有达到稳定输出标准。你的职业画像已保留，可以直接进入深度页面继续分析。",
+        code: "overview_quality_failed",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        partial: {
+          careerProfile: payload.careerProfile,
+          extractedResumeText: normalizeText(payload.extractedResumeText),
+          analyzedAt: new Date().toISOString(),
         },
       });
     }
@@ -1149,6 +1276,8 @@ const server = http.createServer((req, res) => {
       model: DEEPSEEK_MODEL,
 	      baseUrl: DEEPSEEK_BASE_URL,
 	      timeoutMs: AI_TIMEOUT_MS,
+	      overviewTimeoutMs: OVERVIEW_TIMEOUT_MS,
+	      overviewRepairTimeoutMs: OVERVIEW_REPAIR_TIMEOUT_MS,
 	      profileMaxTokens: PROFILE_MAX_TOKENS,
 	      overviewMaxTokens: OVERVIEW_MAX_TOKENS,
 	      moduleMaxTokens: MODULE_MAX_TOKENS,
@@ -1166,6 +1295,16 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && req.url === "/api/extract-resume-text") {
     handleExtractResumeText(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/create-career-profile") {
+    handleCreateCareerProfile(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/create-overview") {
+    handleCreateOverview(req, res);
     return;
   }
 

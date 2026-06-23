@@ -41,6 +41,22 @@ async function analyzeResume(payload) {
   });
 }
 
+async function createCareerProfile(payload) {
+  return requestJson("/api/create-career-profile", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(75_000),
+  });
+}
+
+async function createOverview(payload) {
+  return requestJson("/api/create-overview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(50_000),
+  });
+}
+
 async function extractResumeText(file) {
   return requestJson("/api/extract-resume-text", {
     method: "POST",
@@ -106,6 +122,8 @@ window.ResumeInsightAPI = {
   testAiConnection,
   extractResumeText,
   analyzeResume,
+  createCareerProfile,
+  createOverview,
   analyzeModule,
   streamResumeChat,
 };
