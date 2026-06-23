@@ -602,6 +602,78 @@ function ensureOverviewFields(report, careerProfile) {
   return safeReport;
 }
 
+function createFallbackOverview(careerProfile, reason = "") {
+  const safeReport = ensureOverviewFields({}, careerProfile);
+  const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
+  const weaknesses = Array.isArray(careerProfile?.weaknesses) ? careerProfile.weaknesses : [];
+  const skills = Array.isArray(careerProfile?.skills) ? careerProfile.skills : [];
+  const careerSignals = Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : [];
+  const studySignals = Array.isArray(careerProfile?.studySignals) ? careerProfile.studySignals : [];
+  const abilitySignals = Array.isArray(careerProfile?.abilitySignals) ? careerProfile.abilitySignals : [];
+  const expressionProblems = Array.isArray(careerProfile?.expressionProblems) ? careerProfile.expressionProblems : [];
+  const missingInformation = Array.isArray(careerProfile?.missingInformation) ? careerProfile.missingInformation : [];
+  const basic = careerProfile?.basic || {};
+
+  safeReport.comfortIntro = "你的职业画像已经生成。首页总览会先基于已有证据给出稳妥判断，深度页面可以继续细化。";
+  safeReport.peerScore = {
+    score: 6,
+    explanation: "目前更适合先看能力证据和表达缺口，不建议把同龄比较当成唯一结论。",
+  };
+  safeReport.abilityFields = [0, 1, 2].map((index) => ({
+    name: firstText([skills[index]?.name, strengths[index]?.name, abilitySignals[index], `能力领域 ${index + 1}`]),
+    currentEvidence: firstText([skills[index]?.evidence, strengths[index]?.evidence, careerProfile?.evidence?.[index], "当前证据不足，需要补充项目过程和结果。"]),
+    usableScenes: firstText([careerSignals[index], abilitySignals[index], "可用于岗位匹配、简历表达和下一步训练。"]),
+  }));
+  safeReport.suitableDirections = [0, 1, 2].map((index) => ({
+    title: firstText([
+      careerSignals[index],
+      basic.targetDirection,
+      ["相近岗位试投方向", "能力迁移方向", "稳妥过渡方向"][index],
+    ]),
+    explanation: firstText([
+      strengths[index]?.evidence,
+      skills[index]?.evidence,
+      "这个方向需要在深度职业页继续结合岗位、城市和薪资预期判断。",
+    ]),
+  }));
+  safeReport.newPossibilities = [
+    {
+      title: "相邻能力迁移",
+      reason: firstText([careerSignals[0], "把已有经历重新翻译成能力证据，可能连接到相邻岗位。"]),
+      firstTry: "先选 3 个目标岗位，逐条匹配简历证据。",
+    },
+    {
+      title: "专业/能力组合路线",
+      reason: firstText([studySignals[0], abilitySignals[0], "职业选择也可以从专业背景和可迁移能力组合出发。"]),
+      firstTry: "进入留学专业或能力地图页，补充预算、成绩或能力自评。",
+    },
+  ];
+  safeReport.shortcomings = {
+    summary: firstText([weaknesses[0]?.name, expressionProblems[0], "当前最需要补齐的是表达清晰度和可验证结果。"]),
+    items: [
+      firstText([weaknesses[0]?.evidence, expressionProblems[0], "简历需要写清楚你负责什么、怎么判断、最后结果如何。"]),
+      firstText([weaknesses[1]?.evidence, missingInformation[0], "还缺少会影响判断的关键信息。"]),
+      firstText([weaknesses[2]?.evidence, "需要补充可以证明能力的具体项目证据。"]),
+    ],
+  };
+  safeReport.improvementAdvice = {
+    mostNeededAbility: firstText([weaknesses[0]?.name, "把经历翻译成能力证据"]),
+    missingExperience: firstText([missingInformation[0], "一个可量化、可复盘的代表项目"]),
+    shortAdvice: "先不要一次判断终身方向，进入深度页面把职业、留学和能力分别拆开验证。",
+  };
+  safeReport.closingEncouragement = "先从一个最小验证动作开始，方向会比空想时更清楚。";
+  safeReport.moduleRecommendations = [
+    { module: "career", reason: "继续判断岗位匹配、风险和第一步投递动作。", suggestedQuestion: "我应该优先投哪些岗位？" },
+    { module: "study", reason: "补充国家、预算、成绩后判断专业连接。", suggestedQuestion: "我适合申请哪些专业方向？" },
+    { module: "ability", reason: "把已有经历拆成可迁移能力和训练任务。", suggestedQuestion: "我最该补哪几项能力？" },
+  ];
+  safeReport.meta = {
+    fallbackOverview: true,
+    fallbackReason: normalizeText(reason, 240),
+  };
+  return ensureOverviewFields(safeReport, careerProfile);
+}
+
 function inferStrategicLevel(careerProfile) {
   const text = JSON.stringify(careerProfile || {});
   if (/(策略|战略|布局|管理|负责人|主导|设计|规划|增长|模型|研究)/.test(text)) return "tactical";
@@ -645,14 +717,18 @@ function ensureModuleFields(moduleType, report, careerProfile, moduleInput) {
 }
 
 async function createOverviewReport(careerProfile) {
-  const report = await callDeepSeekJson(buildJsonCompletionBody({
-    systemPrompt: overviewSystemPrompt,
-    contract: overviewJsonContract,
-    userPrompt: buildOverviewPrompt(careerProfile),
-    maxTokens: OVERVIEW_MAX_TOKENS,
-    temperature: 0.2,
-  }));
-  return ensureOverviewFields(report, careerProfile);
+  try {
+    const report = await callDeepSeekJson(buildJsonCompletionBody({
+      systemPrompt: overviewSystemPrompt,
+      contract: overviewJsonContract,
+      userPrompt: buildOverviewPrompt(careerProfile),
+      maxTokens: OVERVIEW_MAX_TOKENS,
+      temperature: 0.2,
+    }));
+    return ensureOverviewFields(report, careerProfile);
+  } catch (error) {
+    return createFallbackOverview(careerProfile, error.message);
+  }
 }
 
 async function createModuleReport(moduleType, careerProfile, moduleInput) {

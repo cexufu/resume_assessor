@@ -347,8 +347,8 @@ function showPartialState(message) {
   qs("#moduleEntrySection").hidden = false;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
-    <strong>已保留职业画像，但总览生成失败</strong>
-    <p>${escapeHtml(message)}。你可以直接进入深度子页面，它们会复用已生成的 career_profile，不需要重新上传简历。</p>
+    <strong>已保留职业画像</strong>
+    <p>首页总览这次没有稳定生成，但你的简历画像已经保留。你可以直接进入深度子页面，它们会复用已生成的 career_profile，不需要重新上传简历。</p>
     <div class="recovery-actions">
       <a class="primary-link" href="./career.html">去职业方向</a>
       <a class="ghost-link" href="./study.html">去留学专业</a>
