@@ -487,13 +487,13 @@ function renderPeerScore(peerScore) {
   const rawScore = Number(scoreInput);
   const explanation = String(peerScore.explanation || "");
   const hasExplanation = isUsefulText(explanation);
-  const hasScore = scoreInput !== null && scoreInput !== "" && Number.isFinite(rawScore) && rawScore > 0;
+  const hasScore = scoreInput !== null && scoreInput !== "" && Number.isFinite(rawScore) && rawScore >= 0;
   if (!hasScore && !hasExplanation) {
     setSectionVisibleByChild("#scoreValue", false);
     return;
   }
   setSectionVisibleByChild("#scoreValue", true);
-  const shouldDeferScore = !hasScore || /信息不足|补充|无法|不足以/.test(explanation);
+  const shouldDeferScore = !hasScore;
   qs(".score-number").classList.toggle("pending", shouldDeferScore);
 
   if (shouldDeferScore) {

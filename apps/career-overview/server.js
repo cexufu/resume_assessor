@@ -548,6 +548,19 @@ function firstText(values, fallback = "信息不足") {
   return fallback;
 }
 
+function isUsefulTextValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text === "--") return false;
+  return !/^(信息不足|信息不足，?需补充|需补充简历证据|当前简历证据不足|没有返回有效内容)$/i.test(text);
+}
+
+function pickUsefulText(values, fallback) {
+  for (const value of values) {
+    if (isUsefulTextValue(value)) return String(value).trim();
+  }
+  return fallback;
+}
+
 function firstItem(items) {
   return Array.isArray(items) && items.length ? items[0] || {} : {};
 }
@@ -629,42 +642,390 @@ function getOverviewQualityIssues(report) {
 
 function attachOverviewQualityMeta(report) {
   const issues = getOverviewQualityIssues(report);
+  const filledFields = Array.isArray(report?.meta?.filledFields) ? report.meta.filledFields : [];
   report.meta = {
     ...(report.meta || {}),
     qualityIssues: issues,
-    lowConfidence: issues.length > 0,
+    lowConfidence: issues.length > 0 || filledFields.length > 0 || Boolean(report?.meta?.deterministicOverviewFallback),
   };
   return report;
 }
 
-function ensureOverviewFields(report, careerProfile) {
-  const safeReport = report && typeof report === "object" ? report : {};
+function markFilled(report, pathName) {
+  report.meta = report.meta && typeof report.meta === "object" ? report.meta : {};
+  report.meta.filledFields = Array.isArray(report.meta.filledFields) ? report.meta.filledFields : [];
+  if (!report.meta.filledFields.includes(pathName)) report.meta.filledFields.push(pathName);
+}
+
+function ensureObjectField(report, key) {
+  if (!report[key] || typeof report[key] !== "object" || Array.isArray(report[key])) {
+    report[key] = {};
+    markFilled(report, key);
+  }
+  return report[key];
+}
+
+function setTextIfMissing(report, object, key, value, pathName) {
+  if (!isUsefulTextValue(object[key])) {
+    object[key] = value;
+    markFilled(report, pathName);
+  }
+}
+
+function profileTexts(careerProfile) {
+  return [
+    JSON.stringify(careerProfile?.basic || {}),
+    ...(Array.isArray(careerProfile?.experienceSummary) ? careerProfile.experienceSummary : []).map((item) => `${item?.title || ""} ${item?.evidence || ""}`),
+    ...(Array.isArray(careerProfile?.skills) ? careerProfile.skills : []).map((item) => `${item?.name || ""} ${item?.evidence || ""}`),
+    ...(Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : []).map((item) => `${item?.name || ""} ${item?.evidence || ""}`),
+    ...(Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : []),
+  ].join(" ");
+}
+
+function uniqueNonEmpty(items, limit = 6) {
+  const result = [];
+  for (const item of items) {
+    const text = String(item || "").trim();
+    if (text && !result.includes(text)) result.push(text);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function normalizeDirectionTitle(text) {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  if (/数据|SQL|Python|R语言|治理|分析/.test(value)) return "数据分析 / 数据治理岗";
+  if (/策略|风控|风险|合规|隐私|算法/.test(value)) return "风险策略 / 合规分析岗";
+  if (/公关|品牌|传播|舆情|内容|媒体/.test(value)) return "品牌公关 / 舆情策略岗";
+  if (/产品|用户|增长|运营/.test(value)) return "产品运营 / 用户增长岗";
+  if (/研究|咨询|行业/.test(value)) return "行业研究 / 咨询助理岗";
+  if (/留学|专业|申请/.test(value)) return "留学专业规划 / 申请策略方向";
+  return value.length > 18 ? value.slice(0, 18) : value;
+}
+
+function buildDirectionCandidates(careerProfile) {
+  const basic = careerProfile?.basic || {};
+  const text = profileTexts(careerProfile);
+  const targetParts = String(basic.targetDirection || "")
+    .split(/[、，,\/；;\n]/)
+    .map(normalizeDirectionTitle)
+    .filter(Boolean);
+  const signalParts = Array.isArray(careerProfile?.careerSignals)
+    ? careerProfile.careerSignals.map(normalizeDirectionTitle).filter(Boolean)
+    : [];
+  const inferred = [
+    /数据|SQL|Python|R语言|治理|分析/.test(text) ? "数据分析 / 数据治理岗" : "",
+    /策略|风控|风险|合规|隐私|算法/.test(text) ? "风险策略 / 合规分析岗" : "",
+    /公关|品牌|传播|舆情|内容|媒体/.test(text) ? "品牌公关 / 舆情策略岗" : "",
+    /产品|用户|增长|运营/.test(text) ? "产品运营 / 用户增长岗" : "",
+    /研究|咨询|行业/.test(text) ? "行业研究 / 咨询助理岗" : "",
+  ].filter(Boolean);
+
+  return uniqueNonEmpty([
+    ...targetParts,
+    ...inferred,
+    ...signalParts,
+    "业务分析 / 项目运营岗",
+    "行业研究 / 策略支持岗",
+    "内容运营 / 项目助理岗",
+  ], 5);
+}
+
+function buildOverviewFallbackParts(careerProfile) {
+  const basic = careerProfile?.basic || {};
   const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
   const weaknesses = Array.isArray(careerProfile?.weaknesses) ? careerProfile.weaknesses : [];
+  const skills = Array.isArray(careerProfile?.skills) ? careerProfile.skills : [];
+  const experiences = Array.isArray(careerProfile?.experienceSummary) ? careerProfile.experienceSummary : [];
+  const evidence = Array.isArray(careerProfile?.evidence) ? careerProfile.evidence : [];
   const expressionProblems = Array.isArray(careerProfile?.expressionProblems) ? careerProfile.expressionProblems : [];
-  const basic = careerProfile?.basic || {};
+  const missing = Array.isArray(careerProfile?.missingInformation) ? careerProfile.missingInformation : [];
+  const abilitySignals = Array.isArray(careerProfile?.abilitySignals) ? careerProfile.abilitySignals : [];
+  const directions = buildDirectionCandidates(careerProfile);
+  const topStrength = firstItem(strengths);
+  const topWeakness = firstItem(weaknesses);
+  const topSkill = firstItem(skills);
+  const topExperience = firstItem(experiences);
+  const evidenceText = pickUsefulText([
+    topStrength.evidence,
+    topExperience.evidence,
+    evidence[0],
+    topSkill.evidence,
+  ], "目前需要补充一个最能代表你的项目，说明任务、动作和结果。");
+  const expressionGap = pickUsefulText([
+    expressionProblems[0],
+    topWeakness.evidence,
+    missing[0] ? `缺少“${missing[0]}”，招聘方难以判断能力强度。` : "",
+  ], "简历需要把经历改写成目标、判断、动作、结果，减少只罗列经历。");
+  const coreAbility = pickUsefulText([
+    topStrength.name,
+    abilitySignals[0],
+    topSkill.name ? `${topSkill.name}应用能力` : "",
+  ], "经历结构化表达与方向验证能力");
+  const score = Math.max(1, Math.min(10,
+    4
+    + Math.min(2, skills.length ? 1 : 0)
+    + Math.min(2, strengths.length ? 1 : 0)
+    + (evidence.length >= 3 ? 1 : 0)
+    - (missing.length >= 4 ? 1 : 0)
+  ));
 
-  if (!safeReport.identitySnapshot || typeof safeReport.identitySnapshot !== "object") {
-    const topStrength = firstItem(strengths);
-    const topWeakness = firstItem(weaknesses);
-    safeReport.identitySnapshot = {
-      who: firstText([
-        topStrength.name ? `一个正在把“${topStrength.name}”转成职业资产的人` : "",
-        basic.major ? `一个有${basic.major}背景、正在重新确认方向的人` : "",
-        "一个需要把经历重新翻译成职业资产的人",
-      ]),
-      destination: firstText([
-        basic.targetDirection,
-        basic.targetGoal,
-        "先找到一个可验证的小方向，再逐步扩大选择面",
-      ]),
-      stage: firstText([
-        topWeakness.name ? `已有一些经历证据，但“${topWeakness.name}”仍需要补齐` : "",
-        expressionProblems[0],
-        "处在从经历整理走向方向验证的阶段",
-      ]),
-    };
+  return {
+    basic,
+    strengths,
+    weaknesses,
+    skills,
+    evidence,
+    expressionProblems,
+    missing,
+    abilitySignals,
+    directions,
+    topStrength,
+    topWeakness,
+    topSkill,
+    topExperience,
+    evidenceText,
+    expressionGap,
+    coreAbility,
+    score,
+  };
+}
+
+function ensureOverviewFields(report, careerProfile) {
+  const safeReport = report && typeof report === "object" ? report : {};
+  const parts = buildOverviewFallbackParts(careerProfile);
+  const {
+    basic,
+    strengths,
+    weaknesses,
+    skills,
+    evidence,
+    expressionProblems,
+    missing,
+    abilitySignals,
+    directions,
+    topStrength,
+    topWeakness,
+    topSkill,
+    topExperience,
+    evidenceText,
+    expressionGap,
+    coreAbility,
+    score,
+  } = parts;
+
+  const identitySnapshot = ensureObjectField(safeReport, "identitySnapshot");
+  setTextIfMissing(safeReport, identitySnapshot, "who", pickUsefulText([
+    topStrength.name ? `一个正在把“${topStrength.name}”转成职业资产的人` : "",
+    basic.major ? `一个有${basic.major}背景、正在重新确认方向的人` : "",
+  ], "一个需要把经历重新翻译成职业资产的人"), "identitySnapshot.who");
+  setTextIfMissing(safeReport, identitySnapshot, "destination", pickUsefulText([
+    basic.targetDirection,
+    basic.targetGoal,
+    directions[0],
+  ], "先找到一个可验证的小方向，再逐步扩大选择面"), "identitySnapshot.destination");
+  setTextIfMissing(safeReport, identitySnapshot, "stage", pickUsefulText([
+    topWeakness.name ? `已有一些经历证据，但“${topWeakness.name}”仍需要补齐` : "",
+    expressionProblems[0],
+  ], "处在从经历整理走向方向验证的阶段"), "identitySnapshot.stage");
+
+  if (!isUsefulTextValue(safeReport.comfortIntro)) {
+    safeReport.comfortIntro = "你不是没有方向，只是需要把已有经历翻译成更清楚的职业资产。";
+    markFilled(safeReport, "comfortIntro");
   }
+
+  const diagnosis = ensureObjectField(safeReport, "capabilityDiagnosis");
+  setTextIfMissing(safeReport, diagnosis, "coreAbility", coreAbility, "capabilityDiagnosis.coreAbility");
+  setTextIfMissing(safeReport, diagnosis, "evidence", evidenceText, "capabilityDiagnosis.evidence");
+  setTextIfMissing(safeReport, diagnosis, "expressionGap", expressionGap, "capabilityDiagnosis.expressionGap");
+  setTextIfMissing(safeReport, diagnosis, "nextProof", "补一个代表项目：目标是什么、你怎么判断、采取了什么动作、最后有什么结果。", "capabilityDiagnosis.nextProof");
+
+  const peerScore = ensureObjectField(safeReport, "peerScore");
+  const rawScore = Number(peerScore.score);
+  if (!Number.isFinite(rawScore) || rawScore <= 0) {
+    peerScore.score = score;
+    markFilled(safeReport, "peerScore.score");
+  } else {
+    peerScore.score = Math.max(1, Math.min(10, rawScore));
+  }
+  setTextIfMissing(safeReport, peerScore, "explanation", [
+    `这是基于简历证据完整度的谨慎估分：优势证据 ${strengths.length} 项，技能证据 ${skills.length} 项。`,
+    missing.length ? `主要低置信点是缺少：${missing.slice(0, 2).join("、")}。` : "后续可用目标岗位和同届样本继续校准。",
+  ].join(""), "peerScore.explanation");
+
+  const abilityDefaults = [
+    {
+      name: `${pickUsefulText([topSkill.name, abilitySignals[0], "结构化分析"], "结构化分析")}能力`,
+      currentEvidence: pickUsefulText([topSkill.evidence, evidence[0], evidenceText], evidenceText),
+      usableScenes: `可用于${directions[0]}中的信息整理、问题拆解和结果复盘。`,
+    },
+    {
+      name: `${pickUsefulText([topStrength.name, abilitySignals[1], "问题判断"], "问题判断")}能力`,
+      currentEvidence: pickUsefulText([topStrength.evidence, evidence[1], expressionGap], expressionGap),
+      usableScenes: `可用于${directions[1] || directions[0]}中的需求判断、风险识别和方案选择。`,
+    },
+    {
+      name: "经历转译与跨场景迁移能力",
+      currentEvidence: pickUsefulText([topExperience.title, evidence[2], "已有经历需要进一步转译成岗位语言。"], "已有经历需要进一步转译成岗位语言。"),
+      usableScenes: `可用于${directions[2] || directions[0]}的简历表达、面试叙事和岗位匹配。`,
+    },
+  ];
+  safeReport.abilityFields = Array.isArray(safeReport.abilityFields) ? safeReport.abilityFields.slice(0, 3) : [];
+  while (safeReport.abilityFields.length < 3) safeReport.abilityFields.push({});
+  safeReport.abilityFields = safeReport.abilityFields.map((item, index) => {
+    const safeItem = item && typeof item === "object" ? item : {};
+    const preset = abilityDefaults[index];
+    setTextIfMissing(safeReport, safeItem, "name", preset.name.replace(/能力能力$/, "能力"), `abilityFields.${index}.name`);
+    setTextIfMissing(safeReport, safeItem, "currentEvidence", preset.currentEvidence, `abilityFields.${index}.currentEvidence`);
+    setTextIfMissing(safeReport, safeItem, "usableScenes", preset.usableScenes, `abilityFields.${index}.usableScenes`);
+    return safeItem;
+  });
+
+  const perspective = ensureObjectField(safeReport, "perspectiveUpgrade");
+  setTextIfMissing(safeReport, perspective, "currentLayer", "当前更像执行到战术之间：有经历和动作，但还需要说清目标、判断和取舍。", "perspectiveUpgrade.currentLayer");
+  setTextIfMissing(safeReport, perspective, "nextLayer", "下一层是从完成任务升级为设计打法：解释为什么做、如何布局、如何验证结果。", "perspectiveUpgrade.nextLayer");
+  setTextIfMissing(safeReport, perspective, "example", pickUsefulText([
+    evidence[0] ? `把“${evidence[0]}”拆成目标、对象、动作和结果。` : "",
+    topExperience.title ? `把“${topExperience.title}”改写成目标、动作、结果三段。` : "",
+  ], "不要只写做过什么，要说明这件事想解决什么问题、怎么判断、结果如何。"), "perspectiveUpgrade.example");
+
+  const directionDefaults = directions.slice(0, 3).map((title, index) => ({
+    title,
+    explanation: [
+      `和你已有的${coreAbility}、${evidenceText}有关，适合作为第 ${index + 1} 个验证方向。`,
+      missing[index] ? `需要补齐“${missing[index]}”后再判断匹配强度。` : "建议先用 1 个项目证据验证匹配强度。",
+    ].join(""),
+  }));
+  safeReport.suitableDirections = Array.isArray(safeReport.suitableDirections) ? safeReport.suitableDirections.slice(0, 3) : [];
+  while (safeReport.suitableDirections.length < 3) safeReport.suitableDirections.push({});
+  safeReport.suitableDirections = safeReport.suitableDirections.map((item, index) => {
+    const safeItem = item && typeof item === "object" ? item : {};
+    const preset = directionDefaults[index] || directionDefaults[0];
+    setTextIfMissing(safeReport, safeItem, "title", preset.title, `suitableDirections.${index}.title`);
+    setTextIfMissing(safeReport, safeItem, "explanation", preset.explanation, `suitableDirections.${index}.explanation`);
+    return safeItem;
+  });
+
+  const routeDefaults = [
+    {
+      label: "最高薪路线",
+      title: directions[0],
+      why: `优先选择能放大${coreAbility}、且薪资天花板更高的方向。`,
+      risk: missing[0] ? `风险是缺少“${missing[0]}”，短期竞争力不够稳定。` : "风险是岗位门槛更高，需要更硬的项目证据。",
+      nextStep: "用 5 个目标 JD 反推必补技能和作品证据。",
+    },
+    {
+      label: "最快上岸路线",
+      title: directions[1] || directions[0],
+      why: `和现有经历距离最近，可以先把“${coreAbility}”包装成岗位语言。`,
+      risk: "可能不是长期天花板最高的路线，但能更快拿到市场反馈。",
+      nextStep: "用现有经历改一版投递简历，先投 10 个相近岗位。",
+    },
+    {
+      label: "最轻松路线",
+      title: directions[2] || "业务分析 / 项目运营岗",
+      why: "沿用已有行业理解、协作方式和表达经验，短期学习成本较低。",
+      risk: "容易停在执行层，需要主动补目标、判断和结果证据。",
+      nextStep: "列出 3 个不用大幅补课也能胜任的岗位。",
+    },
+    {
+      label: "均衡路线",
+      title: directions[3] || "行业研究 / 策略支持岗",
+      why: "兼顾进入难度、成长空间和后续迁移可能。",
+      risk: "需要更清楚地排序目标，避免同时追求所有方向。",
+      nextStep: "设定一个 30 天验证任务，保留投递和反馈数据。",
+    },
+  ];
+  safeReport.routeCards = Array.isArray(safeReport.routeCards) ? safeReport.routeCards.slice(0, 4) : [];
+  while (safeReport.routeCards.length < 4) safeReport.routeCards.push({});
+  safeReport.routeCards = safeReport.routeCards.map((item, index) => {
+    const safeItem = item && typeof item === "object" ? item : {};
+    const preset = routeDefaults[index];
+    if (!isUsefulTextValue(safeItem.label)) {
+      safeItem.label = preset.label;
+      markFilled(safeReport, `routeCards.${index}.label`);
+    }
+    if (!isUsefulTextValue(safeItem.title) || isGenericRouteTitle(safeItem.title)) {
+      safeItem.title = preset.title;
+      markFilled(safeReport, `routeCards.${index}.title`);
+    }
+    setTextIfMissing(safeReport, safeItem, "why", preset.why, `routeCards.${index}.why`);
+    setTextIfMissing(safeReport, safeItem, "risk", preset.risk, `routeCards.${index}.risk`);
+    setTextIfMissing(safeReport, safeItem, "nextStep", preset.nextStep, `routeCards.${index}.nextStep`);
+    return safeItem;
+  });
+
+  const possibilityDefaults = [
+    {
+      title: `${directions[0]}的作品验证`,
+      reason: `你的经历里已经有${coreAbility}的线索，但需要变成可展示作品。`,
+      firstTry: "选一个项目写成 300 字案例：问题、动作、结果、复盘。",
+    },
+    {
+      title: `${directions[1] || directions[0]}的相邻迁移`,
+      reason: "如果目标岗位短期门槛高，可以先从相邻岗位拿反馈，再迭代简历证据。",
+      firstTry: "找 3 个相邻岗位 JD，标出重复出现的能力词。",
+    },
+  ];
+  safeReport.newPossibilities = Array.isArray(safeReport.newPossibilities) ? safeReport.newPossibilities.slice(0, 2) : [];
+  while (safeReport.newPossibilities.length < 2) safeReport.newPossibilities.push({});
+  safeReport.newPossibilities = safeReport.newPossibilities.map((item, index) => {
+    const safeItem = item && typeof item === "object" ? item : {};
+    const preset = possibilityDefaults[index];
+    setTextIfMissing(safeReport, safeItem, "title", preset.title, `newPossibilities.${index}.title`);
+    setTextIfMissing(safeReport, safeItem, "reason", preset.reason, `newPossibilities.${index}.reason`);
+    setTextIfMissing(safeReport, safeItem, "firstTry", preset.firstTry, `newPossibilities.${index}.firstTry`);
+    return safeItem;
+  });
+
+  const shortcomings = ensureObjectField(safeReport, "shortcomings");
+  setTextIfMissing(safeReport, shortcomings, "summary", "当前最大短板不是经历少，而是经历和能力之间的证据链还不够清楚。", "shortcomings.summary");
+  const shortcomingItems = uniqueNonEmpty([
+    ...expressionProblems,
+    ...weaknesses.map((item) => pickUsefulText([item?.evidence, item?.name], "")),
+    ...missing.map((item) => `缺少${item}，会影响岗位匹配和评分判断。`),
+    "需要补充量化结果、个人贡献和复盘结论。",
+  ], 3);
+  shortcomings.items = Array.isArray(shortcomings.items) ? shortcomings.items.filter(isUsefulTextValue).slice(0, 3) : [];
+  while (shortcomings.items.length < Math.min(3, shortcomingItems.length)) {
+    const next = shortcomingItems[shortcomings.items.length];
+    if (next) {
+      shortcomings.items.push(next);
+      markFilled(safeReport, `shortcomings.items.${shortcomings.items.length - 1}`);
+    } else {
+      break;
+    }
+  }
+
+  const advice = ensureObjectField(safeReport, "improvementAdvice");
+  setTextIfMissing(safeReport, advice, "mostNeededAbility", `最需要补的是把${coreAbility}写成可验证证据的能力。`, "improvementAdvice.mostNeededAbility");
+  setTextIfMissing(safeReport, advice, "missingExperience", pickUsefulText([
+    missing[0] ? `最缺“${missing[0]}”相关证据。` : "",
+    "最缺一个能说明个人贡献、判断过程和结果变化的代表项目。",
+  ], "最缺一个能说明个人贡献、判断过程和结果变化的代表项目。"), "improvementAdvice.missingExperience");
+  setTextIfMissing(safeReport, advice, "shortAdvice", "先重写一个项目案例，再用目标岗位 JD 检查能力词是否对齐。", "improvementAdvice.shortAdvice");
+
+  if (!isUsefulTextValue(safeReport.closingEncouragement)) {
+    safeReport.closingEncouragement = "先不用一次选对，把一个方向验证清楚，焦虑会随着证据增加而下降。";
+    markFilled(safeReport, "closingEncouragement");
+  }
+
+  const moduleDefaults = [
+    { module: "career", reason: `继续拆${directions[0]}等岗位的匹配度和进入路径。`, suggestedQuestion: "我应该优先投哪些岗位，为什么？" },
+    { module: "study", reason: "如果考虑留学或转专业，需要把职业目标和专业选择连接起来。", suggestedQuestion: "我适合申请哪些专业方向？" },
+    { module: "ability", reason: `把${coreAbility}、短板和训练任务拆成可执行能力地图。`, suggestedQuestion: "我最该补哪几项能力？" },
+  ];
+  safeReport.moduleRecommendations = Array.isArray(safeReport.moduleRecommendations) ? safeReport.moduleRecommendations.slice(0, 3) : [];
+  while (safeReport.moduleRecommendations.length < 3) safeReport.moduleRecommendations.push({});
+  safeReport.moduleRecommendations = safeReport.moduleRecommendations.map((item, index) => {
+    const safeItem = item && typeof item === "object" ? item : {};
+    const preset = moduleDefaults[index];
+    safeItem.module = ["career", "study", "ability"].includes(safeItem.module) ? safeItem.module : preset.module;
+    setTextIfMissing(safeReport, safeItem, "reason", preset.reason, `moduleRecommendations.${index}.reason`);
+    setTextIfMissing(safeReport, safeItem, "suggestedQuestion", preset.suggestedQuestion, `moduleRecommendations.${index}.suggestedQuestion`);
+    return safeItem;
+  });
 
   return safeReport;
 }
@@ -723,20 +1084,32 @@ async function createOverviewReport(careerProfile) {
     const safeReport = ensureOverviewFields(report, careerProfile);
     return attachOverviewQualityMeta(safeReport);
   } catch (error) {
-    const compactReport = await callDeepSeekJsonWithTimeout(buildJsonCompletionBody({
-      systemPrompt: overviewSystemPrompt,
-      contract: compactOverviewJsonContract,
-      userPrompt: buildCompactOverviewPrompt(careerProfile, error.message),
-      maxTokens: Math.min(OVERVIEW_MAX_TOKENS, 1200),
-      temperature: 0.1,
-    }), Math.min(OVERVIEW_TIMEOUT_MS, 15000), Math.min(OVERVIEW_REPAIR_TIMEOUT_MS, 5000));
-    const report = ensureOverviewFields(compactReport, careerProfile);
-    report.meta = {
-      ...(report.meta || {}),
-      compactOverviewRetry: true,
-      primaryOverviewError: error.message,
-    };
-    return attachOverviewQualityMeta(report);
+    try {
+      const compactReport = await callDeepSeekJsonWithTimeout(buildJsonCompletionBody({
+        systemPrompt: overviewSystemPrompt,
+        contract: compactOverviewJsonContract,
+        userPrompt: buildCompactOverviewPrompt(careerProfile, error.message),
+        maxTokens: Math.min(OVERVIEW_MAX_TOKENS, 1200),
+        temperature: 0.1,
+      }), Math.min(OVERVIEW_TIMEOUT_MS, 15000), Math.min(OVERVIEW_REPAIR_TIMEOUT_MS, 5000));
+      const report = ensureOverviewFields(compactReport, careerProfile);
+      report.meta = {
+        ...(report.meta || {}),
+        compactOverviewRetry: true,
+        primaryOverviewError: error.message,
+      };
+      return attachOverviewQualityMeta(report);
+    } catch (compactError) {
+      const report = ensureOverviewFields({}, careerProfile);
+      report.meta = {
+        ...(report.meta || {}),
+        deterministicOverviewFallback: true,
+        compactOverviewRetry: true,
+        primaryOverviewError: error.message,
+        compactOverviewError: compactError.message,
+      };
+      return attachOverviewQualityMeta(report);
+    }
   }
 }
 
@@ -921,6 +1294,7 @@ async function handleAnalyzeResume(req, res) {
     try {
       const report = await createOverviewReport(careerProfile);
       report.meta = {
+        ...(report.meta || {}),
         mode: "ai",
         provider: "deepseek",
         model: DEEPSEEK_MODEL,
@@ -1137,6 +1511,7 @@ async function handleModuleAnalysis(req, res, moduleType) {
     try {
       const report = await createModuleReport(moduleType, payload.careerProfile, payload.moduleInput || {});
       report.meta = {
+        ...(report.meta || {}),
         mode: "ai",
         module: moduleType,
         provider: "deepseek",
@@ -1373,9 +1748,17 @@ const server = http.createServer((req, res) => {
   res.end("Method not allowed");
 });
 
-server.listen(PORT, () => {
-  console.log(`Resume Partner running at http://localhost:${PORT}`);
-  console.log(DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY loaded on the server." : "DEEPSEEK_API_KEY is not set; AI endpoints will fail.");
-  console.log(`Model: ${DEEPSEEK_MODEL}`);
-  console.log(`API: ${DEEPSEEK_BASE_URL}/chat/completions`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Resume Partner running at http://localhost:${PORT}`);
+    console.log(DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY loaded on the server." : "DEEPSEEK_API_KEY is not set; AI endpoints will fail.");
+    console.log(`Model: ${DEEPSEEK_MODEL}`);
+    console.log(`API: ${DEEPSEEK_BASE_URL}/chat/completions`);
+  });
+}
+
+module.exports = {
+  buildOverviewFallbackParts,
+  ensureOverviewFields,
+  getOverviewQualityIssues,
+};
