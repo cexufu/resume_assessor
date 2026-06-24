@@ -117,7 +117,7 @@ const overviewJsonContract = [
   "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题；缺例子时写需要补充哪类经历才能判断。",
   "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写“高薪潜力方向”“最快可尝试方向”“低阻力过渡方向”“平衡成长方向”这类占位词。",
   "routeCards 每项都必须基于 career_profile 的证据，why/risk/nextStep 必须具体到岗位场景、证据缺口或 7 天动作。",
-  "suitableDirections：3 项，每项字段 title, explanation。title 必须是具体岗位方向或职业场景。",
+  "suitableDirections：3 项，每项字段 title, explanation。title 必须是具体岗位方向或职业场景；3 条 explanation 必须分别说明不同岗位的适配原因、使用能力和下一步验证动作，不允许套同一句模板只改序号。",
   "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性；必须基于证据或明确写出验证前提。",
   "shortcomings：字段 summary, items。items 最多 3 条；每条必须是具体短板或具体缺失信息。",
   "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice；必须给出下一步补齐建议，不能空泛。",
@@ -136,7 +136,7 @@ const compactOverviewJsonContract = [
   "abilityFields 必须 3 项，每项字段：name, currentEvidence, usableScenes。",
   "perspectiveUpgrade 字段：currentLayer, nextLayer, example。",
   "routeCards 必须 4 项，每项字段：label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写泛泛占位词；不能判断时在 why/risk/nextStep 写清具体缺口。",
-  "suitableDirections 必须 3 项，每项字段：title, explanation。",
+  "suitableDirections 必须 3 项，每项字段：title, explanation。3 条 explanation 必须彼此不同，不能只改序号。",
   "newPossibilities 必须 1-2 项，每项字段：title, reason, firstTry。",
   "shortcomings 字段：summary, items。items 2-3 条。",
   "improvementAdvice 字段：mostNeededAbility, missingExperience, shortAdvice。",
@@ -732,6 +732,49 @@ function buildDirectionCandidates(careerProfile) {
   ], 5);
 }
 
+function buildDirectionExplanation(title, parts, index = 0) {
+  const {
+    coreAbility,
+    evidenceText,
+    missing,
+    topSkill,
+  } = parts;
+  const text = String(title || "");
+  const missingTip = missing[index] ? `后续补充“${missing[index]}”，判断会更稳。` : "后续用一个代表项目验证匹配强度。";
+  const skillTip = pickUsefulText([topSkill?.name, coreAbility], coreAbility);
+
+  if (/公关|品牌|传播|舆情|内容|媒体/.test(text)) {
+    return `这个方向会用到你对舆情、公众表达和风险沟通的理解，优势是把事件判断转成可执行口径。下一步准备一个传播策略或危机响应案例。`;
+  }
+  if (/风险|合规|策略|隐私|算法|审核/.test(text)) {
+    return `这个方向更看重你把风险信号转成规则、流程和判断标准的能力，适合内容安全、平台治理、合规审核等场景。${missingTip}`;
+  }
+  if (/数据|治理|SQL|Python/.test(text)) {
+    return `这个方向能承接你的${skillTip}和治理框架经验，适合把复杂流程、口径和标准沉淀成可复用的分析体系。下一步补一个从问题定义、数据处理到结果复盘的项目案例。`;
+  }
+  if (/产品|运营|增长|用户/.test(text)) {
+    return `这个方向适合把你的项目推进和规则设计经验转成用户、流程和指标意识。下一步找一个产品或运营问题，写清目标、动作、指标和反馈。`;
+  }
+  if (/研究|咨询|行业/.test(text)) {
+    return `这个方向需要把零散信息整理成判断框架，和你的${coreAbility}相近。下一步选一个行业议题，输出一页观点、证据和建议。`;
+  }
+  if (/留学|专业|申请/.test(text)) {
+    return `这个方向适合继续把职业目标和专业选择连接起来，重点不是泛泛申请，而是证明你为什么需要这段学习。下一步补充 GPA、语言、预算和目标国家。`;
+  }
+  return `这个方向和你已有的${coreAbility}有关，但需要进一步验证岗位场景。下一步用“${evidenceText}”改写一个项目案例，看它能否对应目标岗位要求。`;
+}
+
+function isRepeatedDirectionExplanation(items, index) {
+  const current = String(items[index]?.explanation || "").replace(/\d+/g, "").trim();
+  if (!current) return false;
+  if (/适合作为第\s*\d+\s*个验证方向|建议先用\s*1\s*个项目证据验证匹配强度/.test(String(items[index]?.explanation || ""))) return true;
+  return items.some((item, otherIndex) => {
+    if (otherIndex === index) return false;
+    const other = String(item?.explanation || "").replace(/\d+/g, "").trim();
+    return other && other === current;
+  });
+}
+
 function buildOverviewFallbackParts(careerProfile) {
   const basic = careerProfile?.basic || {};
   const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
@@ -892,10 +935,7 @@ function ensureOverviewFields(report, careerProfile) {
 
   const directionDefaults = directions.slice(0, 3).map((title, index) => ({
     title,
-    explanation: [
-      `和你已有的${coreAbility}、${evidenceText}有关，适合作为第 ${index + 1} 个验证方向。`,
-      missing[index] ? `需要补齐“${missing[index]}”后再判断匹配强度。` : "建议先用 1 个项目证据验证匹配强度。",
-    ].join(""),
+    explanation: buildDirectionExplanation(title, parts, index),
   }));
   safeReport.suitableDirections = Array.isArray(safeReport.suitableDirections) ? safeReport.suitableDirections.slice(0, 3) : [];
   while (safeReport.suitableDirections.length < 3) safeReport.suitableDirections.push({});
@@ -903,7 +943,10 @@ function ensureOverviewFields(report, careerProfile) {
     const safeItem = item && typeof item === "object" ? item : {};
     const preset = directionDefaults[index] || directionDefaults[0];
     setTextIfMissing(safeReport, safeItem, "title", preset.title, `suitableDirections.${index}.title`);
-    setTextIfMissing(safeReport, safeItem, "explanation", preset.explanation, `suitableDirections.${index}.explanation`);
+    if (!isUsefulTextValue(safeItem.explanation) || isRepeatedDirectionExplanation(safeReport.suitableDirections, index)) {
+      safeItem.explanation = buildDirectionExplanation(safeItem.title || preset.title, parts, index);
+      markFilled(safeReport, `suitableDirections.${index}.explanation`);
+    }
     return safeItem;
   });
 
