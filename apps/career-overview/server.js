@@ -112,7 +112,7 @@ const overviewJsonContract = [
   "必须按分层结构输出。不要因为某个子字段证据不足就省略整块；能判断的字段先输出，不能判断的字段写清楚缺少哪类信息，不要只写“信息不足”。",
   "identitySnapshot：字段 who, destination, stage。分别回答“你是谁”“你想去哪”“你到哪一步了”，每项不超过 70 个中文字符。",
   "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。必须像产品诊断，不要像简历摘要；coreAbility 要命名为独特能力标签，例如“内容安全体系化设计能力”“风险信号翻译能力”；evidence 必须引用 career_profile 的具体项目或事实；expressionGap 必须指出为什么招聘方看不懂；nextProof 必须是一个可执行补证动作。",
-  "peerScore：字段 score, explanation。score 为 0-10；无法可靠比较时 score 用 null，explanation 写清缺少哪类对照信息。",
+  "peerScore：字段 score, explanation。score 为 0-10；必须给出谨慎估分，无法可靠比较时也给低置信估分，并在 explanation 写清缺少哪类对照信息。",
   "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。证据不足时 currentEvidence 写具体缺口，usableScenes 写可验证场景。",
   "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题；缺例子时写需要补充哪类经历才能判断。",
   "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写“高薪潜力方向”“最快可尝试方向”“低阻力过渡方向”“平衡成长方向”这类占位词。",
@@ -128,14 +128,21 @@ const overviewJsonContract = [
 ].join("\n");
 
 const compactOverviewJsonContract = [
-  "JSON 顶层字段必须为：identitySnapshot, capabilityDiagnosis, peerScore, routeCards, suitableDirections, moduleRecommendations。",
+  "JSON 顶层字段必须为：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, routeCards, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
+  "这是短版总览，但结构必须完整。每个文本字段不超过 45 个中文字符。",
   "identitySnapshot 字段：who, destination, stage。",
   "capabilityDiagnosis 字段：coreAbility, evidence, expressionGap, nextProof。必须具体引用 career_profile 证据。",
-  "peerScore 字段：score, explanation。score 为 0-10；无法可靠比较时 score 用 null，explanation 写清缺少哪类对照信息。",
+  "peerScore 字段：score, explanation。score 必须为 1-10 的数字；无法可靠比较时给低置信估分，并说明缺少哪类对照。",
+  "abilityFields 必须 3 项，每项字段：name, currentEvidence, usableScenes。",
+  "perspectiveUpgrade 字段：currentLayer, nextLayer, example。",
   "routeCards 必须 4 项，每项字段：label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写泛泛占位词；不能判断时在 why/risk/nextStep 写清具体缺口。",
   "suitableDirections 必须 3 项，每项字段：title, explanation。",
+  "newPossibilities 必须 1-2 项，每项字段：title, reason, firstTry。",
+  "shortcomings 字段：summary, items。items 2-3 条。",
+  "improvementAdvice 字段：mostNeededAbility, missingExperience, shortAdvice。",
+  "comfortIntro 和 closingEncouragement 各 1 句。",
   "moduleRecommendations 必须 3 项，每项字段：module, reason, suggestedQuestion。module 只能是 career, study, ability。",
-  "所有文本字段不超过 70 个中文字符。只返回合法 JSON。",
+  "只返回合法 JSON。",
 ].join("\n");
 
 const moduleSystemPrompts = {
@@ -522,13 +529,14 @@ async function callDeepSeekJsonWithTimeout(requestBody, timeoutMs, repairTimeout
 }
 
 async function createCareerProfile(payload, resumeText, file) {
-  return callDeepSeekJson(buildJsonCompletionBody({
+  const profile = await callDeepSeekJson(buildJsonCompletionBody({
     systemPrompt: profileSystemPrompt,
     contract: profileJsonContract,
     userPrompt: buildProfilePrompt(payload, resumeText, file),
     maxTokens: PROFILE_MAX_TOKENS,
     temperature: 0.1,
   }));
+  return ensureCareerProfileFields(profile, payload, resumeText);
 }
 
 function firstText(values, fallback = "信息不足") {
@@ -542,6 +550,64 @@ function firstText(values, fallback = "信息不足") {
 
 function firstItem(items) {
   return Array.isArray(items) && items.length ? items[0] || {} : {};
+}
+
+function ensureCareerProfileFields(profile, payload = {}, resumeText = "") {
+  const safeProfile = profile && typeof profile === "object" ? profile : {};
+  const strengths = Array.isArray(safeProfile.strengths) ? safeProfile.strengths : [];
+  const weaknesses = Array.isArray(safeProfile.weaknesses) ? safeProfile.weaknesses : [];
+  const skills = Array.isArray(safeProfile.skills) ? safeProfile.skills : [];
+  const experiences = Array.isArray(safeProfile.experienceSummary) ? safeProfile.experienceSummary : [];
+  const evidence = [
+    ...experiences.map((item) => firstText([item?.evidence, item?.title], "")),
+    ...strengths.map((item) => firstText([item?.evidence, item?.name], "")),
+    ...skills.map((item) => firstText([item?.evidence, item?.name], "")),
+  ].filter(Boolean).slice(0, 8);
+
+  safeProfile.basic = safeProfile.basic && typeof safeProfile.basic === "object" ? safeProfile.basic : {};
+  safeProfile.basic.age ||= normalizeText(payload.age);
+  safeProfile.basic.region ||= normalizeText(payload.region);
+  safeProfile.basic.targetGoal ||= normalizeText(payload.targetGoal);
+  safeProfile.basic.currentThought ||= normalizeText(payload.currentThought);
+  safeProfile.basic.targetDirection ||= normalizeText(payload.targetDirection);
+  safeProfile.basic.anxiety ||= normalizeText(payload.anxiety);
+  safeProfile.experienceSummary = experiences;
+  safeProfile.skills = skills;
+  safeProfile.strengths = strengths;
+  safeProfile.weaknesses = weaknesses;
+  safeProfile.evidence = Array.isArray(safeProfile.evidence) && safeProfile.evidence.length ? safeProfile.evidence : evidence;
+  safeProfile.careerSignals = Array.isArray(safeProfile.careerSignals) && safeProfile.careerSignals.length
+    ? safeProfile.careerSignals
+    : [
+      safeProfile.basic.targetDirection,
+      ...strengths.map((item) => item?.name),
+      ...experiences.map((item) => item?.title),
+    ].filter(Boolean).slice(0, 6);
+  safeProfile.studySignals = Array.isArray(safeProfile.studySignals) && safeProfile.studySignals.length
+    ? safeProfile.studySignals
+    : [
+      safeProfile.basic.educationStage,
+      safeProfile.basic.major,
+      safeProfile.basic.currentThought,
+    ].filter(Boolean).slice(0, 6);
+  safeProfile.abilitySignals = Array.isArray(safeProfile.abilitySignals) && safeProfile.abilitySignals.length
+    ? safeProfile.abilitySignals
+    : [
+      ...skills.map((item) => item?.name),
+      ...strengths.map((item) => item?.name),
+    ].filter(Boolean).slice(0, 8);
+  safeProfile.expressionProblems = Array.isArray(safeProfile.expressionProblems) && safeProfile.expressionProblems.length
+    ? safeProfile.expressionProblems
+    : weaknesses.map((item) => firstText([item?.evidence, item?.name], "")).filter(Boolean).slice(0, 5);
+  safeProfile.missingInformation = Array.isArray(safeProfile.missingInformation) && safeProfile.missingInformation.length
+    ? safeProfile.missingInformation
+    : [
+      !/(\d+|%|增长|下降|提升|降低|覆盖|转化|准确|召回)/.test(resumeText) ? "关键项目的量化结果" : "",
+      !safeProfile.basic.targetDirection ? "明确目标方向" : "",
+      !safeProfile.basic.region ? "目标地区或市场" : "",
+    ].filter(Boolean).slice(0, 6);
+
+  return safeProfile;
 }
 
 function isGenericRouteTitle(title) {
@@ -652,7 +718,7 @@ async function createOverviewReport(careerProfile) {
       systemPrompt: overviewSystemPrompt,
       contract: compactOverviewJsonContract,
       userPrompt: buildCompactOverviewPrompt(careerProfile, error.message),
-      maxTokens: Math.min(OVERVIEW_MAX_TOKENS, 900),
+      maxTokens: Math.min(OVERVIEW_MAX_TOKENS, 1200),
       temperature: 0.1,
     }), Math.min(OVERVIEW_TIMEOUT_MS, 15000), Math.min(OVERVIEW_REPAIR_TIMEOUT_MS, 5000));
     const report = ensureOverviewFields(compactReport, careerProfile);
