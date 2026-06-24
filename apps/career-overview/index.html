@@ -26,22 +26,22 @@
             <div class="modal-titlebar">
               <div>
                 <span class="eyebrow">Input</span>
-                <h2 id="intakeDialogTitle">载入你的经历</h2>
+                <h2 id="intakeDialogTitle">请说出你的故事</h2>
               </div>
               <button class="ghost-button modal-close" id="closeIntakeBtn" type="button">关闭</button>
             </div>
 
           <div class="intake-hero">
             <span class="eyebrow">Life coordinate</span>
-            <h2>把你的经历载入进来</h2>
-            <p>系统会先压缩成职业画像，再生成短总览。职业、留学、能力三个深度分析会放到子页面完成，避免一次输出太重。</p>
+            <h2>你的来时路是你通往未来的积淀</h2>
+            <p>阅读你的过去，让我们看到你的今天，但是更多的可能还等待我们一起探索</p>
           </div>
 
           <div class="panel-heading">
             <span class="step-badge">01</span>
             <div>
-              <h2>建立人生坐标</h2>
-              <p>先回答你现在在哪里，再判断往哪里走</p>
+              <h2>你的人生设定</h2>
+              <p>你是你人生的主角</p>
             </div>
           </div>
 
@@ -69,7 +69,7 @@
           </label>
 
           <label class="field">
-            <span>当前升学/职业想法</span>
+            <span>当前升学/职业想法（可选）</span>
             <textarea id="currentThoughtInput" class="compact-textarea" maxlength="260" placeholder="例如：想试试数据分析，但又担心背景不够；也在考虑商科留学。"></textarea>
           </label>
 
@@ -79,7 +79,7 @@
           </label>
 
           <label class="field">
-            <span>当前最卡住的问题</span>
+            <span>你目前最大的职业/学业课题</span>
             <textarea id="anxietyInput" class="compact-textarea" maxlength="220" placeholder="例如：不知道自己适合什么岗位，担心简历没有竞争力。"></textarea>
           </label>
 
@@ -110,21 +110,22 @@
             </div>
             <div class="toolbar-actions">
               <button class="ghost-button" id="openIntakeBtn" type="button">修改输入</button>
-              <button class="ghost-button" id="exportBtn" type="button" disabled>导出 JSON</button>
+              <button class="ghost-button" id="exportBtn" type="button" disabled>下载综评报告</button>
             </div>
           </div>
 
           <div class="report-empty" id="emptyState">
-            <strong>等待载入经历</strong>
-            <p>上传或粘贴简历后，系统会先生成 career_profile，再输出首页短总览。深度模块会复用画像，减少重复 token 消耗。</p>
+            <strong>等待你说出故事</strong>
+            <p>阅读你的过去，让我们看到你的今天，但是更多的可能还等待我们一起探索。</p>
           </div>
 
           <div class="report-content" id="reportContent" hidden>
             <section class="result-section snapshot-section">
               <div class="section-title">
-                <span>坐</span>
-                <h3>先看清你的位置</h3>
+                <span>1</span>
+                <h3>你的职业画像</h3>
               </div>
+              <p class="lead-text comfort-text" id="comfortIntro">--</p>
               <div class="snapshot-grid">
                 <article>
                   <span>你是谁</span>
@@ -141,16 +142,9 @@
               </div>
             </section>
 
-            <section class="result-section comfort-section">
-              <div class="section-title">
-                <span>安</span>
-                <h3>先把你接住</h3>
-              </div>
-              <p class="lead-text comfort-text" id="comfortIntro">--</p>
-            </section>
             <section class="result-section">
               <div class="section-title">
-                <span>1</span>
+                <span>2</span>
                 <h3>职业资产诊断</h3>
               </div>
               <div class="advice-grid capability-grid">
@@ -174,8 +168,8 @@
             </section>
             <section class="result-section score-section">
               <div class="section-title">
-                <span>2</span>
-                <h3>同龄进展评分</h3>
+                <span>3</span>
+                <h3>职业评分</h3>
               </div>
               <div class="score-layout">
                 <div class="score-number">
@@ -191,14 +185,14 @@
 
             <section class="result-section">
               <div class="section-title">
-                <span>3</span>
+                <span>4</span>
                 <h3>关键能力领域</h3>
               </div>
               <div class="card-grid three" id="abilityFields"></div>
             </section>
             <section class="result-section">
               <div class="section-title">
-                <span>4</span>
+                <span>5</span>
                 <h3>视野升级：从做事到看懂布局</h3>
               </div>
               <div class="advice-grid">
@@ -219,14 +213,6 @@
 
             <section class="result-section">
               <div class="section-title">
-                <span>5</span>
-                <h3>四条路径比较</h3>
-              </div>
-              <div class="card-grid four" id="routeCards"></div>
-            </section>
-
-            <section class="result-section">
-              <div class="section-title">
                 <span>6</span>
                 <h3>适合工作方向</h3>
               </div>
@@ -236,6 +222,14 @@
             <section class="result-section">
               <div class="section-title">
                 <span>7</span>
+                <h3>四条路径比较</h3>
+              </div>
+              <div class="card-grid four" id="routeCards"></div>
+            </section>
+
+            <section class="result-section">
+              <div class="section-title">
+                <span>8</span>
                 <h3>你可能没想到的新可能性</h3>
               </div>
               <div class="card-grid two" id="newPossibilities"></div>
@@ -243,7 +237,7 @@
 
             <section class="result-section">
               <div class="section-title">
-                <span>8</span>
+                <span>9</span>
                 <h3>潜在短板</h3>
               </div>
               <p class="lead-text" id="shortcomingsSummary">--</p>
@@ -252,7 +246,7 @@
 
             <section class="result-section">
               <div class="section-title">
-                <span>9</span>
+                <span>10</span>
                 <h3>最应补齐</h3>
               </div>
               <div class="advice-grid">
@@ -274,8 +268,8 @@
 
             <section class="result-section" id="moduleRecommendationSection">
               <div class="section-title">
-                <span>深</span>
-                <h3>建议深挖模块</h3>
+                <span>11</span>
+                <h3>继续探索</h3>
               </div>
               <div class="card-grid three" id="moduleRecommendations"></div>
             </section>

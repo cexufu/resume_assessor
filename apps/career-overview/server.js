@@ -112,7 +112,7 @@ const overviewJsonContract = [
   "必须按分层结构输出。不要因为某个子字段证据不足就省略整块；能判断的字段先输出，不能判断的字段写清楚缺少哪类信息，不要只写“信息不足”。",
   "identitySnapshot：字段 who, destination, stage。分别回答“你是谁”“你想去哪”“你到哪一步了”，每项不超过 70 个中文字符。",
   "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。必须像产品诊断，不要像简历摘要；coreAbility 要命名为独特能力标签，例如“内容安全体系化设计能力”“风险信号翻译能力”；evidence 必须引用 career_profile 的具体项目或事实；expressionGap 必须指出为什么招聘方看不懂；nextProof 必须是一个可执行补证动作。",
-  "peerScore：字段 score, explanation。score 为 0-10；必须给出谨慎估分，无法可靠比较时也给低置信估分，并在 explanation 写清缺少哪类对照信息。",
+  "peerScore：字段 score, explanation。score 为 0-10；这是职业评分，不是同龄排名。必须给出谨慎估分；explanation 以肯定、看见优势和鼓励为主，最后轻轻补一句还需要哪类证据来校准。",
   "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。证据不足时 currentEvidence 写具体缺口，usableScenes 写可验证场景。",
   "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题；缺例子时写需要补充哪类经历才能判断。",
   "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写“高薪潜力方向”“最快可尝试方向”“低阻力过渡方向”“平衡成长方向”这类占位词。",
@@ -132,7 +132,7 @@ const compactOverviewJsonContract = [
   "这是短版总览，但结构必须完整。每个文本字段不超过 45 个中文字符。",
   "identitySnapshot 字段：who, destination, stage。",
   "capabilityDiagnosis 字段：coreAbility, evidence, expressionGap, nextProof。必须具体引用 career_profile 证据。",
-  "peerScore 字段：score, explanation。score 必须为 1-10 的数字；无法可靠比较时给低置信估分，并说明缺少哪类对照。",
+  "peerScore 字段：score, explanation。score 必须为 1-10 的数字；这是职业评分，不是同龄排名。explanation 以夸奖和肯定为主，最后轻轻说明还缺哪类证据。",
   "abilityFields 必须 3 项，每项字段：name, currentEvidence, usableScenes。",
   "perspectiveUpgrade 字段：currentLayer, nextLayer, example。",
   "routeCards 必须 4 项，每项字段：label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写泛泛占位词；不能判断时在 why/risk/nextStep 写清具体缺口。",
@@ -850,8 +850,8 @@ function ensureOverviewFields(report, careerProfile) {
     peerScore.score = Math.max(1, Math.min(10, rawScore));
   }
   setTextIfMissing(safeReport, peerScore, "explanation", [
-    `这是基于简历证据完整度的谨慎估分：优势证据 ${strengths.length} 项，技能证据 ${skills.length} 项。`,
-    missing.length ? `主要低置信点是缺少：${missing.slice(0, 2).join("、")}。` : "后续可用目标岗位和同届样本继续校准。",
+    `你已经积累了可以被转化的职业资产：优势证据 ${strengths.length} 项，技能证据 ${skills.length} 项。`,
+    missing.length ? `如果再补充${missing.slice(0, 2).join("、")}，这份评分会更准确。` : "后续只要把代表项目讲清楚，职业画像会更立体。",
   ].join(""), "peerScore.explanation");
 
   const abilityDefaults = [

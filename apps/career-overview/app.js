@@ -334,15 +334,21 @@ function showLoadingState(stage = "profile") {
   qs("#reportContent").hidden = true;
   qs("#emptyState").hidden = false;
   const isOverview = stage === "overview";
+  const loadingSteps = [
+    "正在阅读你的人生故事",
+    "正在分析你的梦想",
+    "正在生成你的职业画像",
+    "探索你更多的成长可能性",
+    "你的画布正在展开",
+  ];
+  const startStep = isOverview ? 2 : 0;
   qs("#emptyState").innerHTML = `
     <div class="loading-card">
-      <strong id="loadingTitle">${isOverview ? "正在生成首页总览" : "正在读取你的经历"}</strong>
-      <p id="loadingMessage">${isOverview ? "第 2 步：基于已保存的 career_profile 生成首页判断；如果不稳定，会直接保留画像进入深度页。" : "第 1 步：把简历和补充信息压缩成 career_profile，后续页面会复用这份画像。"}</p>
+      <strong id="loadingTitle">${loadingSteps[startStep]}</strong>
+      <p id="loadingMessage">${isOverview ? loadingSteps[3] : loadingSteps[1]}</p>
       <div class="loading-track" aria-hidden="true"><span id="loadingBar"></span></div>
       <ol class="loading-steps">
-        <li id="loadingStepProfile" class="${isOverview ? "done" : "active"}">压缩职业画像</li>
-        <li id="loadingStepOverview" class="${isOverview ? "active" : ""}">生成短总览</li>
-        <li id="loadingStepModules">准备深度页面</li>
+        ${loadingSteps.map((label, index) => `<li id="loadingStep${index}" class="${index < startStep ? "done" : index === startStep ? "active" : ""}">${label}</li>`).join("")}
       </ol>
     </div>
   `;
@@ -354,17 +360,18 @@ function showLoadingState(stage = "profile") {
     const baseProgress = isOverview ? 54 : 18;
     const progress = Math.min(isOverview ? 92 : 52, baseProgress + Math.floor(elapsed / 900));
     bar.style.width = `${progress}%`;
-    if (!isOverview && elapsed > 12_000) {
-      qs("#loadingTitle").textContent = "正在生成你的职业坐标";
-      qs("#loadingMessage").textContent = "正在压缩职业画像。画像成功后会先保存，再生成首页总览。";
-      qs("#loadingStepProfile").classList.add("done");
-      qs("#loadingStepOverview").classList.add("active");
-    }
+    const maxStep = isOverview ? 4 : 2;
+    const activeStep = Math.min(maxStep, startStep + Math.floor(elapsed / 8_000));
+    qs("#loadingTitle").textContent = loadingSteps[activeStep];
+    qs("#loadingMessage").textContent = loadingSteps[Math.min(4, activeStep + 1)] || loadingSteps[activeStep];
+    loadingSteps.forEach((_label, index) => {
+      const item = qs(`#loadingStep${index}`);
+      if (!item) return;
+      item.classList.toggle("done", index < activeStep);
+      item.classList.toggle("active", index === activeStep);
+    });
     if (isOverview && elapsed > 25_000) {
-      qs("#loadingTitle").textContent = "正在收束结果";
-      qs("#loadingMessage").textContent = "首页总览仍在生成。若它没有达到稳定输出标准，系统会保留画像并开放深度页。";
-      qs("#loadingStepOverview").classList.add("done");
-      qs("#loadingStepModules").classList.add("active");
+      qs("#loadingMessage").textContent = "你的画布正在展开";
     }
   };
   update();
@@ -467,7 +474,8 @@ function renderIdentitySnapshot(report) {
 
 function renderComfort(report) {
   const hasComfort = setResultText("#comfortIntro", report.comfortIntro);
-  setSectionVisibleByChild("#comfortIntro", hasComfort);
+  qs("#comfortIntro").hidden = !hasComfort;
+  if (hasComfort) setSectionVisibleByChild("#comfortIntro", true);
 }
 
 function renderCapabilityDiagnosis(diagnosis) {
@@ -761,7 +769,7 @@ function exportJson() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `resume-insight-${Date.now()}.json`;
+  link.download = `resume-partner-report-${Date.now()}.json`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -806,8 +814,8 @@ function clearAll() {
   qs("#reportContent").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
-    <strong>等待载入经历</strong>
-    <p>上传或粘贴简历后，系统会先生成 career_profile，再输出首页短总览。深度模块会复用画像，减少重复 token 消耗。</p>
+    <strong>等待你说出故事</strong>
+    <p>阅读你的过去，让我们看到你的今天，但是更多的可能还等待我们一起探索。</p>
   `;
   qs("#exportBtn").disabled = true;
   state.report = null;
