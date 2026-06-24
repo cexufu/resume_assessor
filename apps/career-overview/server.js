@@ -36,7 +36,7 @@ const OVERVIEW_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_REPAIR_TIMEOUT_MS
 const PROFILE_MAX_TOKENS = Number(process.env.PROFILE_MAX_TOKENS || 1100);
 const OVERVIEW_MAX_TOKENS = Number(process.env.OVERVIEW_MAX_TOKENS || 1300);
 const MODULE_MAX_TOKENS = Number(process.env.MODULE_MAX_TOKENS || 1900);
-const CHAT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS || 1100);
+const CHAT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS || 420);
 const JSON_REPAIR_MAX_TOKENS = Number(process.env.JSON_REPAIR_MAX_TOKENS || 1200);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 12_000_000);
 const MAX_RESUME_TEXT_CHARS = Number(process.env.MAX_RESUME_TEXT_CHARS || 12_000);
@@ -223,7 +223,12 @@ const resumeChatSystemPrompt = [
   "如果简历证据不足，要直接说明信息不足，不要编造经历、成绩、公司、学校或论文。",
   "回答要有判断、有解释，但保持简洁。默认使用中文。",
   careerJudgmentPrinciples,
-  "追问回答要更像导师互动：先判断用户真正卡点，再给 2-3 个可继续追问的问题或补充材料建议。",
+  "追问回答不是完整报告，而是短反馈。",
+  "默认控制在 3 段以内、4 句以内、约 90-180 个中文字符。",
+  "优先使用这个结构：1 句直接判断，1 句解释原因，最后给 1-2 个下一步动作或可继续追问点。",
+  "不要重复用户问题，不要铺陈背景，不要写长清单，不要把首页内容完整重讲一遍。",
+  "除非用户明确要求展开，否则不要输出超过 3 个并列点。",
+  "追问回答要更像导师互动：先判断用户真正卡点，再给 1-2 个可继续追问的问题或补充材料建议。",
   "不要输出 JSON，不要输出表格，不要做与职业发展无关的闲聊。",
 ].join("\n");
 
@@ -472,10 +477,10 @@ function buildModulePrompt(moduleType, careerProfile, moduleInput) {
 function buildResumeChatMessages(payload) {
   const question = normalizeText(payload.question, 1200);
   const history = Array.isArray(payload.history)
-    ? payload.history.slice(-6).map(normalizeChatMessage).filter(Boolean)
+    ? payload.history.slice(-4).map(normalizeChatMessage).filter(Boolean)
     : [];
   const profileText = stringifyCompact(payload.careerProfile, MAX_PROFILE_JSON_CHARS);
-  const reportText = normalizeText(JSON.stringify(payload.report || {}, null, 2), 2500);
+  const reportText = normalizeText(JSON.stringify(payload.report || {}, null, 2), 1600);
 
   return [
     {
