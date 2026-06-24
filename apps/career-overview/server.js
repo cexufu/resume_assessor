@@ -614,17 +614,27 @@ function isGenericRouteTitle(title) {
   return /^(高薪潜力方向|最快可尝试方向|低阻力过渡方向|平衡成长方向|信息不足|方向|岗位方向|职业方向)$/i.test(String(title || "").trim());
 }
 
-function assertOverviewQuality(report) {
+function getOverviewQualityIssues(report) {
   const diagnosis = report?.capabilityDiagnosis || {};
   const routes = Array.isArray(report?.routeCards) ? report.routeCards : [];
   const concreteRoutes = routes.filter((item) => item?.title && !isGenericRouteTitle(item.title));
   const hasSpecificDiagnosis = String(diagnosis.coreAbility || "").trim().length >= 6
     && String(diagnosis.evidence || "").trim().length >= 12
     && !/信息不足|可迁移能力仍需/.test(`${diagnosis.coreAbility || ""}${diagnosis.evidence || ""}`);
+  const issues = [];
+  if (concreteRoutes.length < 4) issues.push("route_cards_too_generic");
+  if (!hasSpecificDiagnosis) issues.push("capability_diagnosis_too_generic");
+  return issues;
+}
 
-  if (concreteRoutes.length < 4 || !hasSpecificDiagnosis) {
-    throw new Error("Overview quality check failed: route cards or capability diagnosis are too generic.");
-  }
+function attachOverviewQualityMeta(report) {
+  const issues = getOverviewQualityIssues(report);
+  report.meta = {
+    ...(report.meta || {}),
+    qualityIssues: issues,
+    lowConfidence: issues.length > 0,
+  };
+  return report;
 }
 
 function ensureOverviewFields(report, careerProfile) {
@@ -711,8 +721,7 @@ async function createOverviewReport(careerProfile) {
       temperature: 0.2,
     }), OVERVIEW_TIMEOUT_MS, OVERVIEW_REPAIR_TIMEOUT_MS);
     const safeReport = ensureOverviewFields(report, careerProfile);
-    assertOverviewQuality(safeReport);
-    return safeReport;
+    return attachOverviewQualityMeta(safeReport);
   } catch (error) {
     const compactReport = await callDeepSeekJsonWithTimeout(buildJsonCompletionBody({
       systemPrompt: overviewSystemPrompt,
@@ -722,12 +731,12 @@ async function createOverviewReport(careerProfile) {
       temperature: 0.1,
     }), Math.min(OVERVIEW_TIMEOUT_MS, 15000), Math.min(OVERVIEW_REPAIR_TIMEOUT_MS, 5000));
     const report = ensureOverviewFields(compactReport, careerProfile);
-    assertOverviewQuality(report);
     report.meta = {
       ...(report.meta || {}),
       compactOverviewRetry: true,
+      primaryOverviewError: error.message,
     };
-    return report;
+    return attachOverviewQualityMeta(report);
   }
 }
 
