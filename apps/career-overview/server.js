@@ -567,13 +567,14 @@ function buildOverviewPathJsonContract(goalMode = "career") {
   return [
     "JSON 顶层字段必须为：routeCards, suitableDirections, newPossibilities。",
     "不要输出 identitySnapshot、capabilityDiagnosis、peerScore、abilityFields、perspectiveUpgrade、shortcomings、improvementAdvice、closingEncouragement、moduleRecommendations。",
-    `suitableDirections：至少 2 项，最多 3 项。title 必须是具体${copy.directionPromptNoun}。`,
-    `suitableDirections 的 explanation 必须说明：哪条经历支持这个${copy.directionObject}、当前还缺什么、先验证什么。`,
-    `routeCards：至少 2 项，最多 4 项。label 优先使用：${copy.routeLabels.join("、")}。title 必须是具体${copy.routeObject}。`,
-    `routeCards 每项都必须基于 career_profile 的证据或缺口来写，why/risk/nextStep 必须具体，不能把库说明原样搬进来。`,
-    `newPossibilities：至少 2 项，最多 3 项。title 必须是另一个具体${copy.directionPromptNoun}，用于补充“用户可能没想到但也适合”的选择。`,
-    `newPossibilities 的 title 不能和 suitableDirections 或 routeCards 重复；reason 必须说明为什么这个${copy.directionObject}也适合；firstTry 必须给出一个轻量验证动作。`,
-    "不要输出泛泛词，不要重复同义标题。",
+    `suitableDirections：至少 2 项，最多 3 项。每项字段：title, verdict, whatItIs, whyYou, futureValue。title 必须是具体${copy.directionPromptNoun}。`,
+    `routeCards：至少 2 项，最多 4 项。每项字段：label, title, verdict, whatItIs, whyYou, futureValue。label 优先使用：${copy.routeLabels.join("、")}。title 必须是具体${copy.routeObject}。`,
+    `newPossibilities：至少 2 项，最多 3 项。每项字段：title, verdict, whatItIs, whyYou, futureValue。title 必须是另一个具体${copy.directionPromptNoun}。`,
+    "verdict 只能是 1-3 个字的判断词，例如：对口、可转、潜力、高薪、稳妥、跨界。",
+    "whatItIs 用一句话解释这个方向主要做什么或研究什么。",
+    "whyYou 用一句话解释为什么用户现有能力和经历能支撑它。",
+    "futureValue 用一句话解释它为什么值得考虑，例如薪资、发展前景、行业机会或出口清晰度。",
+    "全都要短，不要写风险、下一步、套话，不要重复同义句。",
   ].join("\n");
 }
 
@@ -582,9 +583,9 @@ function buildCompactOverviewPathJsonContract(goalMode = "career") {
   return [
     "JSON 顶层字段必须为：routeCards, suitableDirections, newPossibilities。",
     "短版路径层，但结构必须完整。",
-    `suitableDirections 至少 2 项，最多 3 项，且必须是具体${copy.directionPromptNoun}。`,
-    `routeCards 至少 2 项，最多 4 项，且必须是具体${copy.routeObject}。`,
-    `newPossibilities 至少 2 项，最多 3 项，且必须是不同于主路径的具体${copy.directionPromptNoun}。`,
+    `suitableDirections 至少 2 项，最多 3 项，字段必须是 title, verdict, whatItIs, whyYou, futureValue。`,
+    `routeCards 至少 2 项，最多 4 项，字段必须是 label, title, verdict, whatItIs, whyYou, futureValue。`,
+    `newPossibilities 至少 2 项，最多 3 项，字段必须是 title, verdict, whatItIs, whyYou, futureValue。`,
   ].join("\n");
 }
 
@@ -1515,6 +1516,138 @@ function buildCatalogPossibilities(careerProfile, limit = 2, parts = buildOvervi
   return items;
 }
 
+function findGoalLibraryItemByTitle(title, goalMode = "career") {
+  const normalized = normalizeDirectionTitle(title);
+  if (!normalized) return null;
+  return getGoalLibraryItems(goalMode).find((item) => normalizeDirectionTitle(item?.title || item?.name) === normalized) || null;
+}
+
+function buildCompactVerdict(item, parts, kind = "direction", index = 0) {
+  if (kind === "route") {
+    const label = String(item?.label || "").trim();
+    if (parts.goalMode === "study") {
+      if (label === "最匹配背景线") return "对口";
+      if (label === "最稳妥申请线") return "稳妥";
+      if (label === "跨学科转向线") return "跨界";
+      if (label === "长期潜力线") return "潜力";
+    } else {
+      if (label === "最高薪路线") return "高薪";
+      if (label === "最快上岸路线") return "务实";
+      if (label === "最轻松路线") return "低阻";
+      if (label === "均衡路线") return "均衡";
+    }
+  }
+
+  if (kind === "possibility") {
+    return parts.goalMode === "study"
+      ? (index === 0 ? "补充" : "拓展")
+      : (index === 0 ? "补充" : "隐藏");
+  }
+
+  return index === 0 ? "对口" : index === 1 ? "可转" : "潜力";
+}
+
+function buildCompactWhatItIs(title, parts) {
+  const libraryItem = findGoalLibraryItemByTitle(title, parts.goalMode);
+  if (isUsefulTextValue(libraryItem?.summary)) return String(libraryItem.summary).trim();
+
+  if (parts.goalMode === "study") {
+    if (/商业分析/.test(title)) return "这个方向主要学商业决策、数据分析和业务问题拆解。";
+    if (/(教育|学习设计|教育技术)/.test(title)) return "这个方向主要研究学习过程、课程设计和教育技术应用。";
+    if (/心理/.test(title)) return "这个方向主要研究行为、认知与用户或学习动机。";
+    if (/管理/.test(title)) return "这个方向主要研究组织管理、运营决策和商业协同。";
+    if (/公共政策/.test(title)) return "这个方向主要研究公共问题、政策分析和治理设计。";
+    if (/数据科学/.test(title)) return "这个方向主要研究数据建模、统计方法和技术应用。";
+    return "这个方向主要看课程基础、项目表达和长期研究兴趣。";
+  }
+
+  if (/(产品运营|用户增长)/.test(title)) return "这个方向主要做用户增长、转化优化和产品运营策略。";
+  if (/(用户研究|产品研究)/.test(title)) return "这个方向主要做用户洞察、研究设计和产品决策支持。";
+  if (/(数据分析|数据治理)/.test(title)) return "这个方向主要做数据分析、指标体系和数据质量治理。";
+  if (/(商业分析|策略分析)/.test(title)) return "这个方向主要做业务判断、策略拆解和决策支持。";
+  if (/(教育产品|学习设计)/.test(title)) return "这个方向主要做学习体验、课程产品和教学内容设计。";
+  if (/(供应链|运营分析)/.test(title)) return "这个方向主要做流程优化、运营协同和效率分析。";
+  if (/(行业研究|咨询分析)/.test(title)) return "这个方向主要做行业研究、结论提炼和策略建议。";
+  return "这个方向主要看问题判断、信息处理和落地推进能力。";
+}
+
+function buildCompactWhyYou(title, item, parts, evidence = []) {
+  const fitTerms = collectItemEvidenceTerms(item).slice(0, 2).join("、");
+  const weakEvidencePool = uniqueNonEmpty([
+    parts.basic.targetDirection,
+    parts.basic.currentThought,
+    parts.basic.targetGoal,
+  ], 6);
+  const filteredEvidence = evidence.filter((text) => {
+    const value = String(text || "").trim();
+    if (!value) return false;
+    if (value === title) return false;
+    if (weakEvidencePool.includes(value)) return false;
+    return !weakEvidencePool.some((itemText) => String(itemText || "").includes(value));
+  });
+  const lead = filteredEvidence[0] || parts.topExperience?.evidence || parts.topSkill?.evidence || parts.topStrength?.evidence || parts.evidenceText;
+  const extra = filteredEvidence[1] || "";
+  if (parts.goalMode === "study") {
+    if (lead && extra) return `你已有“${lead}”和“${extra}”，说明你和这个专业看重的 ${fitTerms || "课程基础与项目表达"} 不是从零开始。`;
+    if (lead) return `你已有“${lead}”，它能支撑这个专业最看重的基础匹配和申请叙事。`;
+    return `你现在和这个专业有相邻基础，但还需要更直接的课程、项目或动机证据。`;
+  }
+  if (lead && extra) return `你已有“${lead}”和“${extra}”，说明你和这个方向看重的 ${fitTerms || "分析与推进"} 不是从零开始。`;
+  if (lead) return `你已有“${lead}”，它能支撑这个岗位最看重的基础能力与经验。`;
+  return `你现在和这个方向有相邻基础，但还需要更直接的代表项目证据。`;
+}
+
+function buildCompactFutureValue(title, item, parts, kind = "direction") {
+  const label = String(item?.label || "").trim();
+  if (kind === "route") {
+    if (parts.goalMode === "study") {
+      if (label === "最匹配背景线") return "这条线和你现有背景更对口，申请叙事通常更容易成立。";
+      if (label === "最稳妥申请线") return "这条线申请阻力相对更低，更容易先拿到结果。";
+      if (label === "跨学科转向线") return "这条线能打开跨学科机会，但也更需要解释转向逻辑。";
+      if (label === "长期潜力线") return "这条线更看长期成长，后续行业延展空间通常更大。";
+    } else {
+      if (label === "最高薪路线") return "这条线薪资上限更高，后续也更容易走向更核心的业务岗位。";
+      if (label === "最快上岸路线") return "这条线进入门槛相对更稳，更容易先拿到真实岗位反馈。";
+      if (label === "最轻松路线") return "这条线转向阻力更小，适合先用已有经历完成过渡。";
+      if (label === "均衡路线") return "这条线兼顾进入机会和后续成长，适合边做边收敛方向。";
+    }
+  }
+
+  if (parts.goalMode === "study") {
+    if (/商业分析/.test(title)) return "它的就业出口较清晰，能连接数据、策略和商业相关机会。";
+    if (/(教育|学习设计|教育技术)/.test(title)) return "它既有教育行业机会，也能延展到学习产品和用户研究。";
+    if (/心理/.test(title)) return "它后续可延展到用户研究、教育、健康和行为相关赛道。";
+    if (/公共政策/.test(title)) return "它更适合想把社会议题、治理理解和职业出口连接起来的人。";
+    if (/数据科学/.test(title)) return "它技术门槛更高，但长期行业需求和迁移空间也更大。";
+    return "它通常比单一路径更有弹性，后续还能继续细分职业出口。";
+  }
+
+  if (/(产品运营|用户增长)/.test(title)) return "这个方向的岗位需求更广，后续也容易延展到增长和产品核心岗位。";
+  if (/(用户研究|产品研究)/.test(title)) return "这个方向更能积累判断力，后续也能延展到策略和产品决策。";
+  if (/(数据分析|数据治理)/.test(title)) return "这个方向的可迁移性很强，后续能连接策略、产品和 AI 相关机会。";
+  if (/(商业分析|策略分析)/.test(title)) return "这个方向更看长期判断力积累，薪资上限和行业迁移空间都不错。";
+  if (/(教育产品|学习设计)/.test(title)) return "这个方向兼顾行业场景和产品能力，后续也容易形成差异化。";
+  return "这个方向通常能带来更稳定的行业机会，也方便后续再细分。";
+}
+
+function shortenCardSentence(text, limit = 50) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (!value) return "";
+  return value.length > limit ? `${value.slice(0, limit)}...` : value;
+}
+
+function buildCompactCard(item, parts, kind = "direction", index = 0) {
+  const title = String(item?.title || "").trim();
+  const evidence = findItemEvidence(item, parts.careerProfile, 2, parts.goalMode);
+  return {
+    ...item,
+    verdict: buildCompactVerdict(item, parts, kind, index),
+    whatItIs: shortenCardSentence(buildCompactWhatItIs(title, parts), 42),
+    whyYou: shortenCardSentence(buildCompactWhyYou(title, item, parts, evidence), 54),
+    futureValue: shortenCardSentence(buildCompactFutureValue(title, item, parts, kind), 42),
+  };
+}
+
 function buildCatalogContext(careerProfile, moduleType = "career", limit = 6) {
   const library = loadCareerLibrary();
   const text = profileTexts(careerProfile);
@@ -1900,7 +2033,7 @@ function ensureOverviewFields(report, careerProfile) {
       routeTitles.push(item.title);
     }
   }
-  safeReport.suitableDirections = supportedDirections;
+  safeReport.suitableDirections = supportedDirections.map((item, index) => buildCompactCard(item, parts, "direction", index));
 
   const sourceRoutes = Array.isArray(safeReport.routeCards) ? safeReport.routeCards.slice(0, 6) : [];
   const supportedRoutes = [];
@@ -1951,7 +2084,7 @@ function ensureOverviewFields(report, careerProfile) {
       routeTitles.push(item.title);
     }
   }
-  safeReport.routeCards = supportedRoutes;
+  safeReport.routeCards = supportedRoutes.map((item, index) => buildCompactCard(item, parts, "route", index));
 
   const sourcePossibilities = Array.isArray(safeReport.newPossibilities) ? safeReport.newPossibilities.slice(0, 4) : [];
   const routeTitles = (safeReport.routeCards || []).map((item) => item?.title).filter(Boolean);
@@ -1983,6 +2116,7 @@ function ensureOverviewFields(report, careerProfile) {
       .filter((item) => isDistinctPossibilityTitle(item.title, routeTitles))
       .slice(0, 2);
   }
+  safeReport.newPossibilities = safeReport.newPossibilities.map((item, index) => buildCompactCard(item, parts, "possibility", index));
 
   const shortcomings = ensureObjectField(safeReport, "shortcomings");
   setTextIfMissing(safeReport, shortcomings, "summary", "当前最大短板不是经历少，而是经历和能力之间的证据链还不够清楚。", "shortcomings.summary");

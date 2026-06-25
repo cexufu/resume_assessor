@@ -119,6 +119,14 @@ function definitionHtml(label, value) {
   return text ? `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(text)}</dd>` : "";
 }
 
+function compactCardParagraphs(item) {
+  return [
+    fallbackText(item.whatItIs),
+    fallbackText(item.whyYou),
+    fallbackText(item.futureValue),
+  ].filter(Boolean).map((text) => `<p>${escapeHtml(text)}</p>`).join("");
+}
+
 function sectionNoticeHtml(message) {
   const text = fallbackText(message);
   if (!text) return "";
@@ -824,7 +832,7 @@ function renderPerspectiveUpgrade(perspective) {
 
 function renderDirections(items) {
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => isUsefulText(item?.title) && isUsefulText(item?.explanation)).slice(0, 3)
+    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.whatItIs) || isUsefulText(item?.whyYou) || isUsefulText(item?.futureValue) || isUsefulText(item?.explanation))).slice(0, 3)
     : [];
   setSectionVisibleByChild("#directionList", safeItems.length > 0);
   if (!safeItems.length) {
@@ -834,15 +842,16 @@ function renderDirections(items) {
   qs("#directionList").innerHTML = safeItems.map((item, index) => `
     <article class="result-card direction-card">
       <span class="card-index">${index + 1}</span>
+      ${fallbackText(item.verdict) ? `<span class="route-label compact-tag">${escapeHtml(fallbackText(item.verdict))}</span>` : ""}
       ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
-      ${fallbackText(item.explanation) ? `<p>${escapeHtml(fallbackText(item.explanation))}</p>` : ""}
+      ${compactCardParagraphs(item) || (fallbackText(item.explanation) ? `<p>${escapeHtml(fallbackText(item.explanation))}</p>` : "")}
     </article>
   `).join("");
 }
 
 function renderRouteCards(items) {
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.why || item?.reason) || isUsefulText(item?.risk) || isUsefulText(item?.nextStep || item?.firstStep))).slice(0, 4)
+    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.whatItIs) || isUsefulText(item?.whyYou) || isUsefulText(item?.futureValue) || isUsefulText(item?.why || item?.reason))).slice(0, 4)
     : [];
   setSectionVisibleByChild("#routeCards", safeItems.length > 0);
   if (!safeItems.length) {
@@ -853,12 +862,14 @@ function renderRouteCards(items) {
   const cardsHtml = safeItems.map((item, index) => `
     <article class="result-card route-card">
       <span class="route-label">${escapeHtml(fallbackText(item.label) || `路线 ${index + 1}`)}</span>
+      ${fallbackText(item.verdict) ? `<span class="route-label compact-tag">${escapeHtml(fallbackText(item.verdict))}</span>` : ""}
       ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
+      ${compactCardParagraphs(item) || `
       <dl>
         ${definitionHtml("为什么", item.why || item.reason)}
         ${definitionHtml("风险", item.risk)}
         ${definitionHtml("下一步", item.nextStep || item.firstStep)}
-      </dl>
+      </dl>`}
     </article>
   `).join("");
   qs("#routeCards").innerHTML = cardsHtml;
@@ -867,7 +878,7 @@ function renderRouteCards(items) {
 function renderNewPossibilities(items) {
   const copy = getOverviewSectionCopy(state.report || {});
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => hasUsefulFields(item, ["title", "reason", "firstTry"])).slice(0, 2)
+    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.whatItIs) || isUsefulText(item?.whyYou) || isUsefulText(item?.futureValue) || hasUsefulFields(item, ["reason", "firstTry"]))).slice(0, 2)
     : [];
   setSectionVisibleByChild("#newPossibilities", safeItems.length > 0);
   if (!safeItems.length) {
@@ -878,11 +889,13 @@ function renderNewPossibilities(items) {
   qs("#newPossibilities").innerHTML = safeItems.map((item, index) => `
     <article class="result-card direction-card possibility-card">
       <span class="card-index">${index + 1}</span>
+      ${fallbackText(item.verdict) ? `<span class="route-label compact-tag">${escapeHtml(fallbackText(item.verdict))}</span>` : ""}
       ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
+      ${compactCardParagraphs(item) || `
       ${fallbackText(item.reason) ? `<p>${escapeHtml(fallbackText(item.reason))}</p>` : ""}
       <dl>
         ${definitionHtml(copy.possibilityStepLabel, item.firstTry)}
-      </dl>
+      </dl>`}
     </article>
   `).join("");
 }
