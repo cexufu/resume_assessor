@@ -546,7 +546,7 @@ async function analyze() {
     }
     showToast("分析已生成");
   } catch (error) {
-    if (error.data?.partial?.careerProfile) {
+    if (error.data?.code === "overview_quality_failed" && error.data?.partial?.careerProfile) {
       state.careerProfile = error.data.partial.careerProfile;
       state.extractedResumeText = error.data.partial.extractedResumeText || payload.resumeText;
       persistAnalysis({
@@ -554,12 +554,12 @@ async function analyze() {
         error: error.message,
       });
       showPartialState(error.message);
-    } else if (state.careerProfile) {
+    } else if (error.data?.partial?.careerProfile && state.careerProfile) {
       persistAnalysis({
         isPartial: true,
         error: error.message,
       });
-      showPartialState(error.message);
+      showErrorState(error.message);
     } else {
       showErrorState(error.message);
     }

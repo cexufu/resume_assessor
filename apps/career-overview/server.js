@@ -1992,9 +1992,9 @@ async function handleCreateOverview(req, res) {
       }
       sendJson(res, 200, report);
     } catch (error) {
-      sendJson(res, 422, {
-        error: "首页总览没有达到稳定输出标准。你的职业画像已保留，可以直接进入深度页面继续分析。",
-        code: "overview_quality_failed",
+      sendJson(res, 502, {
+        error: error.message || "首页总览生成失败，请稍后重试。",
+        code: "overview_analysis_failed",
         provider: "deepseek",
         model: DEEPSEEK_MODEL,
         baseUrl: DEEPSEEK_BASE_URL,
