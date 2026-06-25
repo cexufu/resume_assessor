@@ -9,6 +9,7 @@ const PUBLIC_DIR = __dirname;
 const ENV_FILE = path.join(PUBLIC_DIR, ".env");
 const DATA_DIR = path.resolve(PUBLIC_DIR, "..", ".resume-partner-data");
 const AUTH_STORE_FILE = path.join(DATA_DIR, "auth-store.json");
+const CAREER_LIBRARY_FILE = path.join(PUBLIC_DIR, "data", "career_library.json");
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return false;
@@ -63,6 +64,7 @@ const mimeTypes = {
 };
 
 let authStoreCache = null;
+let careerLibraryCache = null;
 
 function ensureDirSync(dirPath) {
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
@@ -99,6 +101,38 @@ function loadAuthStore() {
     authStoreCache = defaultAuthStore();
   }
   return authStoreCache;
+}
+
+function defaultCareerLibrary() {
+  return {
+    version: 1,
+    careerRoutes: [],
+    studyDirections: [],
+    possibilityPatterns: [],
+    abilityAxes: [],
+  };
+}
+
+function loadCareerLibrary() {
+  if (careerLibraryCache) return careerLibraryCache;
+  if (!fs.existsSync(CAREER_LIBRARY_FILE)) {
+    careerLibraryCache = defaultCareerLibrary();
+    return careerLibraryCache;
+  }
+  try {
+    const raw = fs.readFileSync(CAREER_LIBRARY_FILE, "utf8");
+    const parsed = raw.trim() ? JSON.parse(raw) : defaultCareerLibrary();
+    careerLibraryCache = {
+      version: 1,
+      careerRoutes: Array.isArray(parsed.careerRoutes) ? parsed.careerRoutes : [],
+      studyDirections: Array.isArray(parsed.studyDirections) ? parsed.studyDirections : [],
+      possibilityPatterns: Array.isArray(parsed.possibilityPatterns) ? parsed.possibilityPatterns : [],
+      abilityAxes: Array.isArray(parsed.abilityAxes) ? parsed.abilityAxes : [],
+    };
+  } catch {
+    careerLibraryCache = defaultCareerLibrary();
+  }
+  return careerLibraryCache;
 }
 
 function saveAuthStore(store) {
@@ -376,8 +410,7 @@ const overviewJsonContract = [
   "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写“高薪潜力方向”“最快可尝试方向”“低阻力过渡方向”“平衡成长方向”这类占位词。",
   "routeCards 每项都必须基于 career_profile 的证据，why/risk/nextStep 必须具体到岗位场景、证据缺口或 7 天动作。",
   "suitableDirections：3 项，每项字段 title, explanation。title 必须是具体岗位方向或职业场景；3 条 explanation 必须分别说明不同岗位的适配原因、使用能力和下一步验证动作，不允许套同一句模板只改序号。",
-  "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性；必须是“证据化、转译、验证、补强、组合”这类可能性，不允许写成另一条岗位路线。",
-  "newPossibilities 的 title 不能包含 岗位、方向、路线、路径、职业、场景、工作、运营、分析、策略、合规、公关、舆情 这类明显岗位词，也不能和 routeCards 的标题同类。",
+  "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性；必须基于证据或明确写出验证前提。",
   "shortcomings：字段 summary, items。items 最多 3 条；每条必须是具体短板或具体缺失信息。",
   "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice；必须给出下一步补齐建议，不能空泛。",
   "comfortIntro：开篇安慰总起，1-2 句，必须具体、不空泛。",
@@ -667,6 +700,16 @@ function buildProfilePrompt(payload, resumeText, file) {
 }
 
 function buildOverviewPrompt(careerProfile) {
+  const libraryContext = {
+    careerRoutes: buildCatalogContext(careerProfile, "career", 6).map((item) => ({
+      title: item?.title || "",
+      tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+    })),
+    possibilityPatterns: rankLibraryItems(loadCareerLibrary().possibilityPatterns, profileTexts(careerProfile), 4).map((item) => ({
+      title: item?.title || item?.name || "",
+      tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+    })),
+  };
   return [
     "请基于 career_profile 生成首页总览 JSON。",
     "不要要求原始简历，不要生成深度报告。",
@@ -674,10 +717,23 @@ function buildOverviewPrompt(careerProfile) {
     "",
     "career_profile：",
     stringifyCompact(careerProfile),
+    "",
+    "库候选项：",
+    JSON.stringify(libraryContext, null, 2),
   ].join("\n");
 }
 
 function buildCompactOverviewPrompt(careerProfile, previousError = "") {
+  const libraryContext = {
+    careerRoutes: buildCatalogContext(careerProfile, "career", 4).map((item) => ({
+      title: item?.title || "",
+      tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+    })),
+    possibilityPatterns: rankLibraryItems(loadCareerLibrary().possibilityPatterns, profileTexts(careerProfile), 3).map((item) => ({
+      title: item?.title || item?.name || "",
+      tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+    })),
+  };
   return [
     "上一轮首页总览 JSON 不稳定，请改用更短 JSON 重新生成。",
     "只生成合同要求的核心字段，避免长句和复杂嵌套。",
@@ -687,6 +743,9 @@ function buildCompactOverviewPrompt(careerProfile, previousError = "") {
     "",
     "career_profile：",
     stringifyCompact(careerProfile),
+    "",
+    "库候选项：",
+    JSON.stringify(libraryContext, null, 2),
   ].filter(Boolean).join("\n");
 }
 
@@ -712,6 +771,11 @@ function buildJsonCompletionBody({ systemPrompt, contract, userPrompt, maxTokens
 
 function buildModulePrompt(moduleType, careerProfile, moduleInput) {
   const input = moduleInput && typeof moduleInput === "object" ? moduleInput : {};
+  const libraryContext = buildCatalogContext(careerProfile, moduleType, 6).map((item) => ({
+    title: item?.title || item?.name || "",
+    tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+    summary: item?.summary || item?.reason || item?.why || "",
+  }));
   return [
     `请基于 career_profile 生成 ${moduleType} 模块 JSON。`,
     "只完成当前模块，不要输出其他模块内容。",
@@ -733,6 +797,9 @@ function buildModulePrompt(moduleType, careerProfile, moduleInput) {
       selfAssessment: normalizeText(input.selfAssessment, MAX_MODULE_INPUT_CHARS),
       extraQuestion: normalizeText(input.extraQuestion, MAX_MODULE_INPUT_CHARS),
     }, null, 2),
+    "",
+    "库候选项：",
+    JSON.stringify(libraryContext, null, 2),
   ].join("\n");
 }
 
@@ -894,18 +961,6 @@ function isGenericRouteTitle(title) {
   return /^(高薪潜力方向|最快可尝试方向|低阻力过渡方向|平衡成长方向|信息不足|方向|岗位方向|职业方向)$/i.test(String(title || "").trim());
 }
 
-function isRouteLikeTitle(title) {
-  const text = String(title || "").trim();
-  if (!text) return false;
-  return /(岗位|方向|路线|路径|职业|场景|工作|运营|分析|策略|合规|公关|舆情|增长|产品|数据|留学|能力)/.test(text);
-}
-
-function isDistinctPossibilityTitle(title, routeTitles = []) {
-  const text = String(title || "").trim();
-  if (!text || isGenericRouteTitle(text) || isRouteLikeTitle(text)) return false;
-  return !routeTitles.some((item) => normalizeDirectionTitle(item) === text);
-}
-
 function getOverviewQualityIssues(report) {
   const diagnosis = report?.capabilityDiagnosis || {};
   const routes = Array.isArray(report?.routeCards) ? report.routeCards : [];
@@ -959,6 +1014,108 @@ function profileTexts(careerProfile) {
     ...(Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : []).map((item) => `${item?.name || ""} ${item?.evidence || ""}`),
     ...(Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : []),
   ].join(" ");
+}
+
+function collectLibraryTerms(item) {
+  if (!item || typeof item !== "object") return [];
+  const values = [
+    item.title,
+    item.name,
+    item.summary,
+    item.reason,
+    item.why,
+    item.risk,
+    item.nextStep,
+    item.firstTry,
+    item.focus,
+  ];
+  if (Array.isArray(item.tags)) values.push(...item.tags);
+  if (Array.isArray(item.aliases)) values.push(...item.aliases);
+  return values.map((value) => String(value || "").trim()).filter(Boolean);
+}
+
+function scoreLibraryItem(item, haystack) {
+  const text = String(haystack || "").toLowerCase();
+  if (!text) return 0;
+  const terms = collectLibraryTerms(item);
+  let score = 0;
+  for (const term of terms) {
+    const token = term.toLowerCase();
+    if (!token) continue;
+    if (text.includes(token)) score += token.length >= 4 ? 4 : 2;
+  }
+  return score;
+}
+
+function rankLibraryItems(items, haystack, limit = 6) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({ item, score: scoreLibraryItem(item, haystack) }))
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => item)
+    .slice(0, limit);
+}
+
+function formatCatalogRoute(item, careerProfile, index) {
+  const title = String(item?.title || "").trim();
+  const routeTitles = (Array.isArray(careerProfile?.routeTitles) ? careerProfile.routeTitles : []).filter(Boolean);
+  const evidence = findDirectionEvidence(title, careerProfile, 1);
+  return {
+    label: item?.label || ["最高薪路线", "最快上岸路线", "最轻松路线", "均衡路线"][index] || "候选路线",
+    title,
+    why: evidence.length
+      ? `简历里能看到与“${title}”相关的证据：${evidence[0]}。`
+      : `这是库里的高相关候选，当前简历还需要补一条直接证据来验证“${title}”。`,
+    risk: item?.risk || "还需要补一个代表项目来确认真实匹配度。",
+    nextStep: item?.nextStep || "先拿一个 JD 对照现有简历证据。",
+  };
+}
+
+function buildCatalogRouteCards(careerProfile, limit = 4) {
+  const library = loadCareerLibrary();
+  const text = profileTexts(careerProfile);
+  const ranked = rankLibraryItems(library.careerRoutes, text, Math.max(limit, 4));
+  const routeTitles = [];
+  const items = [];
+  for (const item of ranked) {
+    const title = normalizeDirectionTitle(item?.title);
+    if (!isUsefulTextValue(title) || routeTitles.includes(title)) continue;
+    routeTitles.push(title);
+    items.push(formatCatalogRoute(item, careerProfile, items.length));
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+function buildCatalogPossibilities(careerProfile, limit = 2) {
+  const library = loadCareerLibrary();
+  const text = profileTexts(careerProfile);
+  const ranked = rankLibraryItems(library.possibilityPatterns, text, Math.max(limit, 4));
+  const routeTitles = buildCatalogRouteCards(careerProfile, 4).map((item) => item.title);
+  const items = [];
+  for (const item of ranked) {
+    const title = normalizeDirectionTitle(item?.title || item?.name);
+    if (!isDistinctPossibilityTitle(title, routeTitles)) continue;
+    const evidence = findDirectionEvidence(title, careerProfile, 1);
+    items.push({
+      title,
+      reason: isUsefulTextValue(item?.reason)
+        ? String(item.reason).trim()
+        : (evidence.length ? `这个可能性可以用证据验证：${evidence[0]}。` : "这是一个更偏证据化和验证化的可能性，不是另一条岗位路线。"),
+      firstTry: isUsefulTextValue(item?.firstTry)
+        ? String(item.firstTry).trim()
+        : "先挑一个能验证的小动作。",
+    });
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+function buildCatalogContext(careerProfile, moduleType = "career", limit = 6) {
+  const library = loadCareerLibrary();
+  const text = profileTexts(careerProfile);
+  if (moduleType === "study") return rankLibraryItems(library.studyDirections, text, limit);
+  if (moduleType === "ability") return rankLibraryItems(library.abilityAxes, text, limit);
+  return rankLibraryItems(library.careerRoutes, text, limit);
 }
 
 function uniqueNonEmpty(items, limit = 6) {
@@ -1160,34 +1317,6 @@ function buildOverviewFallbackParts(careerProfile) {
   };
 }
 
-function buildNewPossibilityFallbacks(parts) {
-  const {
-    coreAbility,
-    evidenceText,
-    expressionGap,
-    missing,
-    topExperience,
-  } = parts;
-  const sourceEvidence = pickUsefulText([evidenceText, topExperience?.evidence, topExperience?.title], "已有经历可以继续提炼成可展示证据。");
-  return [
-    {
-      title: "作品集证据化",
-      reason: `${sourceEvidence}。把这类经历整理成可展示的证据，会比继续空想方向更有效。`,
-      firstTry: "先选 1 个代表项目，写成问题、动作、结果三段。",
-    },
-    {
-      title: "简历表达重构",
-      reason: `${coreAbility} 还可以被翻译得更清楚，避免招聘方只看到经历看不到能力。`,
-      firstTry: "把简历里最重要的 1 个经历改成“目标-判断-动作-结果”。",
-    },
-    {
-      title: "证据补强验证",
-      reason: missing.length ? `先补 ${missing[0]}，能更快校准判断。` : expressionGap,
-      firstTry: "找一个能被验证的材料补上：截图、数据、复盘或作品链接。",
-    },
-  ];
-}
-
 function ensureOverviewFields(report, careerProfile) {
   const safeReport = report && typeof report === "object" ? report : {};
   const parts = buildOverviewFallbackParts(careerProfile);
@@ -1301,6 +1430,19 @@ function ensureOverviewFields(report, careerProfile) {
     supportedDirections.push({ title, explanation });
     if (supportedDirections.length >= 3) break;
   }
+  if (supportedDirections.length < 3) {
+    const routeTitles = supportedDirections.map((item) => item.title);
+    const catalogDirections = buildCatalogRouteCards(careerProfile, 4);
+    for (const item of catalogDirections) {
+      if (supportedDirections.length >= 3) break;
+      if (!item?.title || routeTitles.includes(item.title)) continue;
+      supportedDirections.push({
+        title: item.title,
+        explanation: item.why || item.nextStep || "这是库里的候选方向，建议结合更具体的经历再验证。",
+      });
+      routeTitles.push(item.title);
+    }
+  }
   safeReport.suitableDirections = supportedDirections;
   if (!supportedDirections.length) {
     ensureSectionNotice(
@@ -1331,11 +1473,23 @@ function ensureOverviewFields(report, careerProfile) {
     });
     if (supportedRoutes.length >= 4) break;
   }
+  if (supportedRoutes.length < 2) {
+    const routeTitles = supportedRoutes.map((item) => item.title);
+    const catalogRoutes = buildCatalogRouteCards(careerProfile, 4);
+    for (const item of catalogRoutes) {
+      if (supportedRoutes.length >= 2) break;
+      if (!item?.title || routeTitles.includes(item.title)) continue;
+      supportedRoutes.push(item);
+      routeTitles.push(item.title);
+    }
+  }
   safeReport.routeCards = supportedRoutes;
   if (!supportedRoutes.length) {
     ensureSectionNotice(safeReport, "routeCards", "现有简历证据不足以稳定比较多条职业路径，所以这里先不强行生成四条路线。");
   } else if (supportedRoutes.length < 4) {
-    ensureSectionNotice(safeReport, "routeCards", "这次只展示证据最强的路径，不强行凑满四条路线。");
+    ensureSectionNotice(safeReport, "routeCards", supportedRoutes.length < 2
+      ? "这次先用库里的候选路线补足到最少两条，后续再用更具体简历证据校准。"
+      : "这次只展示证据最强的路径，不强行凑满四条路线。");
   }
 
   const sourcePossibilities = Array.isArray(safeReport.newPossibilities) ? safeReport.newPossibilities.slice(0, 4) : [];
@@ -1347,10 +1501,18 @@ function ensureOverviewFields(report, careerProfile) {
       return isDistinctPossibilityTitle(item.title, routeTitles);
     })
     .slice(0, 2);
-  if (!safeReport.newPossibilities.length) {
+  if (safeReport.newPossibilities.length < 1) {
+    const catalogPossibilities = buildCatalogPossibilities(careerProfile, 2);
+    for (const item of catalogPossibilities) {
+      if (safeReport.newPossibilities.length >= 1) break;
+      if (!isDistinctPossibilityTitle(item.title, routeTitles)) continue;
+      safeReport.newPossibilities.push(item);
+    }
+  }
+  if (safeReport.newPossibilities.length < 1) {
     safeReport.newPossibilities = buildNewPossibilityFallbacks(parts)
       .filter((item) => isDistinctPossibilityTitle(item.title, routeTitles))
-      .slice(0, 2);
+      .slice(0, 1);
   }
 
   const shortcomings = ensureObjectField(safeReport, "shortcomings");
@@ -2239,7 +2401,11 @@ const server = http.createServer((req, res) => {
 	      chatMaxTokens: CHAT_MAX_TOKENS,
 	      profileInputMaxChars: MAX_PROFILE_RESUME_TEXT_CHARS,
 	      maxFileMB: Math.round(MAX_FILE_BYTES / 1_000_000),
-	    });
+    });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/library") {
+    sendJson(res, 200, loadCareerLibrary());
     return;
   }
 
