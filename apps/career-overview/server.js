@@ -964,12 +964,15 @@ function isGenericRouteTitle(title) {
 function getOverviewQualityIssues(report) {
   const diagnosis = report?.capabilityDiagnosis || {};
   const routes = Array.isArray(report?.routeCards) ? report.routeCards : [];
+  const possibilities = Array.isArray(report?.newPossibilities) ? report.newPossibilities : [];
   const concreteRoutes = routes.filter((item) => item?.title && !isGenericRouteTitle(item.title));
+  const concretePossibilities = possibilities.filter((item) => isUsefulTextValue(item?.title) && isUsefulTextValue(item?.reason || item?.firstTry));
   const hasSpecificDiagnosis = String(diagnosis.coreAbility || "").trim().length >= 6
     && String(diagnosis.evidence || "").trim().length >= 12
     && !/信息不足|可迁移能力仍需/.test(`${diagnosis.coreAbility || ""}${diagnosis.evidence || ""}`);
   const issues = [];
-  if (concreteRoutes.length < 4) issues.push("route_cards_too_generic");
+  if (concreteRoutes.length < 2) issues.push("route_cards_too_generic");
+  if (concretePossibilities.length < 2) issues.push("new_possibilities_too_generic");
   if (!hasSpecificDiagnosis) issues.push("capability_diagnosis_too_generic");
   return issues;
 }
@@ -1501,18 +1504,19 @@ function ensureOverviewFields(report, careerProfile) {
       return isDistinctPossibilityTitle(item.title, routeTitles);
     })
     .slice(0, 2);
-  if (safeReport.newPossibilities.length < 1) {
+  if (safeReport.newPossibilities.length < 2) {
     const catalogPossibilities = buildCatalogPossibilities(careerProfile, 2);
     for (const item of catalogPossibilities) {
-      if (safeReport.newPossibilities.length >= 1) break;
+      if (safeReport.newPossibilities.length >= 2) break;
       if (!isDistinctPossibilityTitle(item.title, routeTitles)) continue;
+      if (safeReport.newPossibilities.some((entry) => entry.title === item.title)) continue;
       safeReport.newPossibilities.push(item);
     }
   }
-  if (safeReport.newPossibilities.length < 1) {
+  if (safeReport.newPossibilities.length < 2) {
     safeReport.newPossibilities = buildNewPossibilityFallbacks(parts)
       .filter((item) => isDistinctPossibilityTitle(item.title, routeTitles))
-      .slice(0, 1);
+      .slice(0, 2);
   }
 
   const shortcomings = ensureObjectField(safeReport, "shortcomings");
