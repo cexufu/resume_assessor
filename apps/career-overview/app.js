@@ -61,6 +61,40 @@ function isUsefulText(value) {
   return !/(^信息不足$|信息不足，?需补充|需补充简历证据|当前简历证据不足|没有返回有效内容)/.test(text);
 }
 
+function inferGoalModeFromReport(report) {
+  const explicitMode = report?.meta?.goalMode;
+  if (explicitMode === "study" || explicitMode === "career") return explicitMode;
+  const basic = state.careerProfile?.basic || report?.careerProfile?.basic || {};
+  const text = [basic.targetGoal, basic.targetDirection, basic.currentThought].filter(Boolean).join(" ");
+  return /(留学|升学|申请|硕士|博士|专业|选校|读研|研究生)/.test(text) ? "study" : "career";
+}
+
+function getOverviewSectionCopy(report) {
+  const sectionCopy = report?.meta?.sectionCopy || {};
+  const goalMode = inferGoalModeFromReport(report);
+  if (goalMode === "study") {
+    return {
+      directionHeading: sectionCopy.directionHeading || "适合申请方向",
+      routeHeading: sectionCopy.routeHeading || "四条申请路径比较",
+      possibilityHeading: sectionCopy.possibilityHeading || "你可能没想到的专业可能性",
+      possibilityStepLabel: sectionCopy.possibilityStepLabel || "可先了解",
+    };
+  }
+  return {
+    directionHeading: sectionCopy.directionHeading || "适合工作方向",
+    routeHeading: sectionCopy.routeHeading || "四条职业路径比较",
+    possibilityHeading: sectionCopy.possibilityHeading || "你可能没想到的岗位可能性",
+    possibilityStepLabel: sectionCopy.possibilityStepLabel || "可先验证",
+  };
+}
+
+function applyOverviewSectionCopy(report) {
+  const copy = getOverviewSectionCopy(report);
+  qs("#directionsHeading").textContent = copy.directionHeading;
+  qs("#routesHeading").textContent = copy.routeHeading;
+  qs("#possibilitiesHeading").textContent = copy.possibilityHeading;
+}
+
 function setResultText(selector, value) {
   const element = qs(selector);
   const text = fallbackText(value);
@@ -666,6 +700,7 @@ function renderReport(report) {
   qs("#reportContent").hidden = false;
   qs("#exportBtn").disabled = false;
 
+  applyOverviewSectionCopy(report);
   renderIdentitySnapshot(report);
   renderComfort(report);
   renderCapabilityDiagnosis(report.capabilityDiagnosis || {});
@@ -830,6 +865,7 @@ function renderRouteCards(items) {
 }
 
 function renderNewPossibilities(items) {
+  const copy = getOverviewSectionCopy(state.report || {});
   const safeItems = Array.isArray(items)
     ? items.filter((item) => hasUsefulFields(item, ["title", "reason", "firstTry"])).slice(0, 2)
     : [];
@@ -845,7 +881,7 @@ function renderNewPossibilities(items) {
       ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
       ${fallbackText(item.reason) ? `<p>${escapeHtml(fallbackText(item.reason))}</p>` : ""}
       <dl>
-        ${definitionHtml("可以先试", item.firstTry)}
+        ${definitionHtml(copy.possibilityStepLabel, item.firstTry)}
       </dl>
     </article>
   `).join("");
