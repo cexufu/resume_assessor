@@ -13,11 +13,11 @@
           <span class="brand-mark" aria-hidden="true">RP</span>
           <div>
             <h1>能力地图</h1>
-            <p>把经历翻译成能力结构、瓶颈和训练任务</p>
+            <p>你的能力，也会带你走向新的可能</p>
           </div>
         </div>
         <div class="top-actions">
-          <a class="ghost-link" href="./index.html">返回总览</a>
+          <a class="ghost-link" href="./index.html#overviewReport">返回总结果页</a>
           <span class="chat-status" id="moduleStatus">缺少画像</span>
           <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
         </div>
@@ -28,8 +28,8 @@
           <div class="panel-heading">
             <span class="step-badge">02</span>
             <div>
-              <h2>补充能力自评</h2>
-              <p>这里只生成能力地图，不重复读取完整简历</p>
+              <h2>你的能力偏好</h2>
+              <p>能力地图只是理解自己的一种方式</p>
             </div>
           </div>
 
@@ -50,7 +50,6 @@
         <section class="report-panel" aria-label="能力地图分析结果">
           <div class="report-toolbar">
             <div>
-              <span class="eyebrow">子页面</span>
               <h2 id="moduleTitle">能力地图</h2>
             </div>
             <button class="ghost-button" id="exportBtn" type="button">导出 JSON</button>
@@ -63,6 +62,20 @@
             <div class="profile-summary" id="profileSummary"></div>
           </section>
           <section class="module-output" id="moduleOutput"></section>
+          <section class="result-section module-chat-section" aria-label="能力地图追问">
+            <div class="section-title">
+              <span>追</span>
+              <h3>继续追问</h3>
+            </div>
+            <div class="prompt-chips" id="modulePromptChips"></div>
+            <div class="chat-messages" id="moduleChatMessages">
+              <div class="chat-placeholder">完成本页分析后，可以继续追问能力短板、迁移场景和训练任务。</div>
+            </div>
+            <form class="chat-form" id="moduleChatForm">
+              <textarea id="moduleChatInput" rows="2" placeholder="例如：我最该先补哪项能力？" disabled></textarea>
+              <button class="primary-button" id="moduleChatSendBtn" type="submit" disabled>发送</button>
+            </form>
+          </section>
         </section>
       </main>
 

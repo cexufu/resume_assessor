@@ -176,6 +176,14 @@ button:disabled {
   overflow: auto;
 }
 
+.auth-card.intake-card.intake-panel {
+  width: min(480px, 100%);
+}
+
+.history-card.intake-card.intake-panel {
+  width: min(760px, 100%);
+}
+
 .modal-titlebar {
   display: flex;
   align-items: flex-start;
@@ -195,6 +203,77 @@ button:disabled {
 
 .modal-close {
   min-height: 34px;
+}
+
+.auth-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.auth-mode-switch .ghost-button.active {
+  border-color: rgba(22, 116, 91, 0.28);
+  color: var(--green-dark);
+  background: #e3f1eb;
+}
+
+.auth-copy,
+.history-meta {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.history-item-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.history-item-main strong,
+.history-item-main p,
+.history-item-main span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.history-item-main strong {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.history-item-main p {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.history-item-main span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.history-restore-btn {
+  min-width: 72px;
 }
 
 .intake-card textarea {
@@ -430,6 +509,12 @@ textarea {
 .eyebrow {
   background: #e3f1eb;
   color: var(--green-dark);
+}
+
+#authStatus {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .report-toolbar {
@@ -914,6 +999,11 @@ textarea {
   margin: 18px;
 }
 
+.module-chat-section {
+  display: grid;
+  gap: 12px;
+}
+
 .profile-summary {
   display: grid;
   gap: 8px;
@@ -1122,6 +1212,18 @@ textarea {
   background: var(--green);
 }
 
+.notice-card {
+  display: grid;
+  align-content: center;
+  min-height: 120px;
+}
+
+.notice-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .chat-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1129,7 +1231,8 @@ textarea {
   align-items: end;
 }
 
-#chatInput {
+#chatInput,
+#moduleChatInput {
   min-height: 48px;
   max-height: 120px;
   padding: 10px 12px;

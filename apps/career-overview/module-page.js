@@ -1,15 +1,39 @@
 const moduleConfig = {
   career: {
     title: "职业方向分析",
-    empty: "从总览页生成职业画像后，这里会基于画像和补充信息分析岗位方向。",
+    empty: "从总结果页生成职业画像后，这里会基于画像和你的职业目标，继续探索职业路线。",
+    chatPlaceholder: "完成本页分析后，可以继续追问方向风险、岗位选择和下一步动作。",
+    chatReadyPlaceholder: "可以继续追问方向风险、岗位选择和下一步动作。",
+    chatInputPlaceholder: "例如：如果我先投这个方向，最大的风险是什么？",
+    chatPrompts: [
+      "我该优先投哪些岗位？",
+      "这条路线最大的风险是什么？",
+      "下一步最值得补的证据是什么？",
+    ],
   },
   study: {
     title: "留学与专业推荐",
-    empty: "从总览页生成职业画像后，这里会基于画像和申请条件分析专业方向。",
+    empty: "从总结果页生成职业画像后，这里会基于画像和你的申请目标，继续探索专业方向。",
+    chatPlaceholder: "完成本页分析后，可以继续追问专业匹配、申请短板和职业连接。",
+    chatReadyPlaceholder: "可以继续追问专业匹配、申请短板和职业连接。",
+    chatInputPlaceholder: "例如：我现在最该补哪个申请短板？",
+    chatPrompts: [
+      "我更适合申请哪类专业？",
+      "我现在最该补哪个申请短板？",
+      "这个方向和未来职业怎么连接？",
+    ],
   },
   ability: {
     title: "能力地图",
-    empty: "从总览页生成职业画像后，这里会基于画像和自评生成能力地图。",
+    empty: "从总结果页生成职业画像后，这里会基于画像和你的能力偏好，继续展开能力地图。",
+    chatPlaceholder: "完成本页分析后，可以继续追问能力短板、迁移场景和训练任务。",
+    chatReadyPlaceholder: "可以继续追问能力短板、迁移场景和训练任务。",
+    chatInputPlaceholder: "例如：我最该先补哪项能力？",
+    chatPrompts: [
+      "我最该先补哪项能力？",
+      "哪项能力最容易迁移到新岗位？",
+      "我应该先做什么训练任务？",
+    ],
   },
 };
 
@@ -19,6 +43,8 @@ const state = {
   analysis: null,
   report: null,
   isAnalyzing: false,
+  isChatting: false,
+  chatHistory: [],
   loadingTimer: null,
 };
 
@@ -60,6 +86,12 @@ function showToast(message) {
   showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2400);
 }
 
+function setPromptChipsDisabled(isDisabled) {
+  document.querySelectorAll("#modulePromptChips button").forEach((button) => {
+    button.disabled = isDisabled;
+  });
+}
+
 function loadAnalysis() {
   try {
     state.analysis = JSON.parse(localStorage.getItem(storageKey) || "null");
@@ -79,17 +111,43 @@ function setBusy(isBusy) {
   setText("#moduleStatus", state.analysis?.careerProfile ? (isBusy ? "正在分析" : "可生成") : "缺少画像");
 }
 
+function setChatAvailable(isAvailable) {
+  const config = moduleConfig[moduleType] || moduleConfig.career;
+  const input = qs("#moduleChatInput");
+  const sendButton = qs("#moduleChatSendBtn");
+  if (input) {
+    input.disabled = !isAvailable;
+    input.placeholder = config.chatInputPlaceholder;
+  }
+  if (sendButton) sendButton.disabled = !isAvailable;
+  setPromptChipsDisabled(!isAvailable);
+}
+
+function setChatBusy(isBusy) {
+  state.isChatting = isBusy;
+  const input = qs("#moduleChatInput");
+  const sendButton = qs("#moduleChatSendBtn");
+  if (input) input.disabled = isBusy || !state.report;
+  if (sendButton) {
+    sendButton.disabled = isBusy || !state.report;
+    sendButton.textContent = isBusy ? "回答中..." : "发送";
+  }
+  setPromptChipsDisabled(isBusy || !state.report);
+}
+
 function renderProfileSummary() {
   const profile = state.analysis?.careerProfile;
   if (!profile) {
     qs("#profileSummary").innerHTML = `
       <strong>还没有职业画像</strong>
-      <p>请先回到总览页上传简历并生成职业画像。</p>
-      <a class="primary-link" href="./index.html">返回总览页</a>
+      <p>请先回到总结果页上传简历并生成职业画像。</p>
+      <a class="primary-link" href="./index.html#overviewReport">返回总结果页</a>
     `;
     setBusy(false);
+    setChatAvailable(false);
     qs("#runModuleBtn").disabled = true;
     qs("#moduleOutput").innerHTML = `<div class="chat-placeholder">${moduleConfig[moduleType]?.empty || "请先生成职业画像。"}</div>`;
+    resetChatPanel();
     return;
   }
 
@@ -128,6 +186,9 @@ async function runModule() {
 
   try {
     setBusy(true);
+    state.chatHistory = [];
+    state.report = null;
+    resetChatPanel();
     showModuleLoadingState();
     const report = await window.ResumeInsightAPI.analyzeModule(moduleType, {
       careerProfile: state.analysis.careerProfile,
@@ -135,9 +196,11 @@ async function runModule() {
     });
     state.report = report;
     renderModuleReport(report);
+    resetChatPanel();
     showToast("深度分析已生成");
   } catch (error) {
     qs("#moduleOutput").innerHTML = `<div class="chat-placeholder">深度分析失败：${escapeHtml(error.message)}</div>`;
+    resetChatPanel();
     showToast(error.message);
   } finally {
     stopModuleLoadingState();
@@ -148,9 +211,9 @@ async function runModule() {
 function showModuleLoadingState() {
   stopModuleLoadingState();
   const labels = {
-    career: ["正在比较职业路线", "只使用 career_profile 和本页补充信息，不重复读取完整简历。"],
-    study: ["正在判断专业连接", "会优先识别国家、预算、成绩等约束，信息不足会直接提示。"],
-    ability: ["正在绘制能力地图", "会把经历转译成可迁移能力、瓶颈和训练任务。"],
+    career: ["正在探索职业路线", "正在探索可能"],
+    study: ["正在探索专业方向", "正在探索可能"],
+    ability: ["正在展开能力地图", "正在探索可能"],
   };
   const [title, message] = labels[moduleType] || labels.career;
   qs("#moduleOutput").innerHTML = `
@@ -221,6 +284,89 @@ function renderModuleReport(report) {
   qs("#moduleOutput").innerHTML = renderer
     ? renderer(report)
     : `<pre>${escapeHtml(JSON.stringify(report, null, 2))}</pre>`;
+}
+
+function renderChatPrompts() {
+  const container = qs("#modulePromptChips");
+  if (!container) return;
+  const prompts = (moduleConfig[moduleType] || moduleConfig.career).chatPrompts || [];
+  container.innerHTML = prompts.map((prompt) => `<button type="button" data-question="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>`).join("");
+}
+
+function resetChatPanel() {
+  const config = moduleConfig[moduleType] || moduleConfig.career;
+  const messages = qs("#moduleChatMessages");
+  if (messages) {
+    messages.innerHTML = `<div class="chat-placeholder">${escapeHtml(state.report ? config.chatReadyPlaceholder : config.chatPlaceholder)}</div>`;
+  }
+  const input = qs("#moduleChatInput");
+  if (input) input.value = "";
+  setChatAvailable(Boolean(state.report));
+}
+
+function appendChatMessage(role, content = "") {
+  const messages = qs("#moduleChatMessages");
+  const placeholder = messages?.querySelector(".chat-placeholder");
+  if (placeholder) placeholder.remove();
+
+  const item = document.createElement("article");
+  item.className = `chat-message ${role}`;
+  item.innerHTML = `
+    <span>${role === "user" ? "你" : "DeepSeek"}</span>
+    <p>${escapeHtml(content)}</p>
+  `;
+  messages?.appendChild(item);
+  if (messages) messages.scrollTop = messages.scrollHeight;
+  return item.querySelector("p");
+}
+
+async function sendChat(questionOverride = "") {
+  if (!state.analysis?.careerProfile) {
+    showToast("请先回到总结果页生成职业画像");
+    return;
+  }
+
+  if (!state.report) {
+    showToast("请先完成本页分析");
+    return;
+  }
+
+  const question = String(questionOverride || qs("#moduleChatInput")?.value || "").trim();
+  if (!question) {
+    showToast("请输入追问问题");
+    return;
+  }
+
+  appendChatMessage("user", question);
+  const assistantNode = appendChatMessage("assistant", "");
+  if (qs("#moduleChatInput")) qs("#moduleChatInput").value = "";
+  setChatBusy(true);
+
+  try {
+    const answer = await window.ResumeInsightAPI.streamResumeChat({
+      careerProfile: state.analysis.careerProfile,
+      report: {
+        moduleType,
+        moduleReport: state.report,
+      },
+      question,
+      history: state.chatHistory,
+    }, (_chunk, fullText) => {
+      assistantNode.textContent = fullText || "正在生成...";
+      qs("#moduleChatMessages").scrollTop = qs("#moduleChatMessages").scrollHeight;
+    });
+
+    const finalAnswer = answer.trim();
+    assistantNode.textContent = finalAnswer || "没有返回有效内容。";
+    state.chatHistory.push({ role: "user", content: question });
+    state.chatHistory.push({ role: "assistant", content: finalAnswer });
+    state.chatHistory = state.chatHistory.slice(-8);
+  } catch (error) {
+    assistantNode.textContent = `追问失败：${error.message}`;
+    showToast(error.message);
+  } finally {
+    setChatBusy(false);
+  }
 }
 
 function renderExplorationBlocks(report) {
@@ -455,15 +601,24 @@ async function refreshHealth() {
 function bindEvents() {
   qs("#runModuleBtn").addEventListener("click", runModule);
   qs("#exportBtn").addEventListener("click", exportJson);
+  qs("#moduleChatForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendChat();
+  });
+  document.querySelectorAll("#modulePromptChips button").forEach((button) => {
+    button.addEventListener("click", () => sendChat(button.dataset.question || ""));
+  });
 }
 
 async function init() {
   const config = moduleConfig[moduleType] || moduleConfig.career;
   qs("#moduleTitle").textContent = config.title;
   qs("#moduleOutput").innerHTML = `<div class="chat-placeholder">${config.empty}</div>`;
+  renderChatPrompts();
   bindEvents();
   loadAnalysis();
   renderProfileSummary();
+  resetChatPanel();
   setBusy(false);
   await refreshHealth();
 }

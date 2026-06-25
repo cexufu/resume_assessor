@@ -16,11 +16,17 @@
             <p>不是替你改一份简历，而是帮你看清下一段路</p>
           </div>
         </div>
-        <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
+        <div class="top-actions">
+          <button class="ghost-button" id="historyBtn" type="button" hidden>历史报告</button>
+          <button class="ghost-button" id="authBtn" type="button">登录 / 注册</button>
+          <button class="ghost-button" id="logoutBtn" type="button" hidden>退出</button>
+          <span class="status-pill" id="authStatus">未登录</span>
+          <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
+        </div>
       </header>
 
       <main class="workspace result-workspace">
-        <section class="intake-modal open" id="intakeModal" aria-label="简历输入悬浮框">
+        <section class="intake-modal" id="intakeModal" aria-label="简历输入悬浮框">
           <div class="modal-scrim" id="modalScrim" aria-hidden="true"></div>
           <div class="intake-panel intake-card" role="dialog" aria-modal="true" aria-labelledby="intakeDialogTitle">
             <div class="modal-titlebar">
@@ -102,7 +108,7 @@
           </div>
         </section>
 
-        <section class="report-panel" aria-label="分析结果">
+        <section class="report-panel" id="overviewReport" aria-label="分析结果">
           <div class="report-toolbar">
             <div>
               <span class="eyebrow">AI 输出</span>
@@ -276,6 +282,58 @@
           </div>
         </section>
       </main>
+
+      <section class="intake-modal" id="authModal" aria-label="账号登录与注册">
+        <div class="modal-scrim" id="authModalScrim" aria-hidden="true"></div>
+        <div class="intake-panel intake-card auth-card" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle">
+          <div class="modal-titlebar">
+            <div>
+              <span class="eyebrow">Account</span>
+              <h2 id="authDialogTitle">登录你的账号</h2>
+            </div>
+            <button class="ghost-button modal-close" id="closeAuthBtn" type="button">关闭</button>
+          </div>
+
+          <div class="auth-mode-switch" id="authModeSwitch">
+            <button class="ghost-button active" id="authModeLoginBtn" type="button">登录</button>
+            <button class="ghost-button" id="authModeRegisterBtn" type="button">注册</button>
+          </div>
+
+          <p class="auth-copy" id="authCopy">登录后可以保存你的分析记录，并在不同设备继续查看。</p>
+
+          <label class="field">
+            <span>邮箱</span>
+            <input id="authEmailInput" type="email" maxlength="120" placeholder="例如：name@example.com" autocomplete="email" />
+          </label>
+
+          <label class="field">
+            <span>密码</span>
+            <input id="authPasswordInput" type="password" maxlength="120" placeholder="至少 8 位" autocomplete="current-password" />
+          </label>
+
+          <div class="button-row">
+            <button class="primary-button" id="authSubmitBtn" type="button">登录</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="intake-modal" id="historyModal" aria-label="历史报告">
+        <div class="modal-scrim" id="historyModalScrim" aria-hidden="true"></div>
+        <div class="intake-panel intake-card history-card" role="dialog" aria-modal="true" aria-labelledby="historyDialogTitle">
+          <div class="modal-titlebar">
+            <div>
+              <span class="eyebrow">History</span>
+              <h2 id="historyDialogTitle">你的历史报告</h2>
+            </div>
+            <button class="ghost-button modal-close" id="closeHistoryBtn" type="button">关闭</button>
+          </div>
+
+          <div class="history-meta" id="historyMeta">登录后生成的总结果页会自动保存到这里。</div>
+          <div class="history-list" id="historyList">
+            <div class="chat-placeholder">还没有历史记录。</div>
+          </div>
+        </div>
+      </section>
 
       <section class="chat-panel chat-dock collapsed" id="chatDock" aria-label="简历追问">
         <div class="chat-heading">

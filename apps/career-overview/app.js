@@ -1,5 +1,7 @@
 const state = {
   health: null,
+  user: null,
+  historyItems: [],
   report: null,
   careerProfile: null,
   uploadedFile: null,
@@ -7,6 +9,8 @@ const state = {
   chatHistory: [],
   isAnalyzing: false,
   isChatting: false,
+  isAuthSubmitting: false,
+  authMode: "login",
   loadingTimer: null,
 };
 
@@ -81,6 +85,16 @@ function definitionHtml(label, value) {
   return text ? `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(text)}</dd>` : "";
 }
 
+function sectionNoticeHtml(message) {
+  const text = fallbackText(message);
+  if (!text) return "";
+  return `
+    <article class="result-card notice-card">
+      <p>${escapeHtml(text)}</p>
+    </article>
+  `;
+}
+
 function hasUsefulFields(item, fields) {
   return fields.some((field) => isUsefulText(item?.[field]));
 }
@@ -93,12 +107,73 @@ function showToast(message) {
   showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2400);
 }
 
+function openAuthModal(mode = "login") {
+  setAuthMode(mode);
+  qs("#authModal").classList.add("open");
+}
+
+function closeAuthModal() {
+  qs("#authModal").classList.remove("open");
+}
+
+function openHistoryModal() {
+  if (!state.user) {
+    openAuthModal("login");
+    showToast("请先登录账号");
+    return;
+  }
+  qs("#historyModal").classList.add("open");
+}
+
+function closeHistoryModal() {
+  qs("#historyModal").classList.remove("open");
+}
+
 function openIntakeModal() {
   qs("#intakeModal").classList.add("open");
 }
 
 function closeIntakeModal() {
   qs("#intakeModal").classList.remove("open");
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode === "register" ? "register" : "login";
+  qs("#authModeLoginBtn").classList.toggle("active", state.authMode === "login");
+  qs("#authModeRegisterBtn").classList.toggle("active", state.authMode === "register");
+  qs("#authDialogTitle").textContent = state.authMode === "login" ? "登录你的账号" : "创建你的账号";
+  qs("#authCopy").textContent = state.authMode === "login"
+    ? "登录后可以保存你的分析记录，并在不同设备继续查看。"
+    : "注册后会自动登录，并开始保存你的职业分析记录。";
+  qs("#authSubmitBtn").textContent = state.authMode === "login" ? "登录" : "注册";
+  qs("#authPasswordInput").setAttribute("autocomplete", state.authMode === "login" ? "current-password" : "new-password");
+}
+
+function setAuthBusy(isBusy) {
+  state.isAuthSubmitting = isBusy;
+  qs("#authEmailInput").disabled = isBusy;
+  qs("#authPasswordInput").disabled = isBusy;
+  qs("#authSubmitBtn").disabled = isBusy;
+  qs("#authModeLoginBtn").disabled = isBusy;
+  qs("#authModeRegisterBtn").disabled = isBusy;
+  qs("#closeAuthBtn").disabled = isBusy;
+  qs("#authSubmitBtn").textContent = isBusy
+    ? (state.authMode === "login" ? "登录中..." : "注册中...")
+    : (state.authMode === "login" ? "登录" : "注册");
+}
+
+function renderAuthState() {
+  qs("#authBtn").hidden = Boolean(state.user);
+  qs("#logoutBtn").hidden = !state.user;
+  qs("#historyBtn").hidden = !state.user;
+  qs("#authStatus").textContent = state.user ? `已登录：${state.user.email}` : "未登录";
+  qs("#authStatus").classList.toggle("ok", Boolean(state.user));
+  const meta = qs("#historyMeta");
+  if (meta) {
+    meta.textContent = state.user
+      ? `已保存 ${state.user.historyCount || 0} 份总结果页报告。`
+      : "登录后生成的总结果页会自动保存到这里。";
+  }
 }
 
 function setBusy(isBusy) {
@@ -261,6 +336,167 @@ async function refreshHealth() {
   }
 }
 
+function applySavedAnalysis(item) {
+  if (!item?.careerProfile) return;
+  state.careerProfile = item.careerProfile;
+  state.report = item.report || null;
+  state.extractedResumeText = item.extractedResumeText || "";
+  state.chatHistory = [];
+
+  const basic = state.careerProfile.basic || {};
+  qs("#ageInput").value = basic.age || "";
+  qs("#regionInput").value = basic.region || "";
+  qs("#targetGoalInput").value = basic.targetGoal || "";
+  qs("#currentThoughtInput").value = basic.currentThought || "";
+  qs("#targetDirectionInput").value = basic.targetDirection || "";
+  qs("#anxietyInput").value = basic.anxiety || "";
+  qs("#resumeText").value = state.extractedResumeText || qs("#resumeText").value;
+  persistDraft();
+  persistAnalysis();
+  closeAuthModal();
+  closeHistoryModal();
+  closeIntakeModal();
+
+  if (state.report) {
+    renderReport(state.report);
+    resetChatPanel();
+  } else {
+    showPartialState("已恢复职业画像。", { silent: true });
+  }
+  window.requestAnimationFrame(() => qs("#overviewReport")?.scrollIntoView({ block: "start" }));
+}
+
+function renderHistoryList() {
+  const container = qs("#historyList");
+  const items = Array.isArray(state.historyItems) ? state.historyItems : [];
+  if (!state.user) {
+    container.innerHTML = '<div class="chat-placeholder">请先登录账号。</div>';
+    return;
+  }
+  if (!items.length) {
+    container.innerHTML = '<div class="chat-placeholder">还没有历史记录。登录后生成的总结果页会自动保存到这里。</div>';
+    return;
+  }
+  container.innerHTML = items.map((item) => `
+    <article class="history-item">
+      <div class="history-item-main">
+        <strong>${escapeHtml(fallbackText(item.title) || "职业发展分析")}</strong>
+        <p>${escapeHtml(fallbackText(item.identityDestination || item.targetDirection || item.targetGoal || "未命名方向"))}</p>
+        <span>${escapeHtml(new Date(item.createdAt).toLocaleString("zh-CN"))}${item.score !== null && item.score !== undefined ? ` · 评分 ${escapeHtml(String(item.score))}` : ""}</span>
+      </div>
+      <button class="ghost-button history-restore-btn" type="button" data-id="${escapeHtml(item.id)}">恢复</button>
+    </article>
+  `).join("");
+}
+
+async function refreshCurrentUser(options = {}) {
+  try {
+    const result = await window.ResumeInsightAPI.getCurrentUser();
+    state.user = result.user || null;
+  } catch {
+    state.user = null;
+  } finally {
+    renderAuthState();
+    if (!options.skipHistory && state.user) {
+      await loadHistory({ silent: true });
+    } else if (!state.user) {
+      state.historyItems = [];
+      renderHistoryList();
+    }
+  }
+}
+
+async function loadHistory(options = {}) {
+  if (!state.user) {
+    state.historyItems = [];
+    renderHistoryList();
+    return;
+  }
+  try {
+    const result = await window.ResumeInsightAPI.listHistory();
+    state.historyItems = Array.isArray(result.items) ? result.items : [];
+    renderHistoryList();
+  } catch (error) {
+    state.historyItems = [];
+    renderHistoryList();
+    if (!options.silent) showToast(error.message);
+  }
+}
+
+async function restoreHistory(id) {
+  if (!id) return;
+  try {
+    const result = await window.ResumeInsightAPI.getHistoryItem(id);
+    applySavedAnalysis(result.item);
+    showToast("已恢复历史报告");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function saveCurrentAnalysisToHistory(options = {}) {
+  if (!state.user || !state.report || !state.careerProfile) return;
+  try {
+    const result = await window.ResumeInsightAPI.saveHistory({
+      report: state.report,
+      careerProfile: state.careerProfile,
+      extractedResumeText: state.extractedResumeText,
+    });
+    if (result.item) {
+      await refreshCurrentUser({ skipHistory: true });
+      await loadHistory({ silent: true });
+    }
+    if (!options.silent) showToast(result.message || "报告已保存");
+  } catch (error) {
+    if (!options.silent) showToast(error.message);
+  }
+}
+
+async function submitAuth() {
+  const email = qs("#authEmailInput").value.trim();
+  const password = qs("#authPasswordInput").value;
+  if (!email || !password) {
+    showToast("请输入邮箱和密码");
+    return;
+  }
+
+  try {
+    setAuthBusy(true);
+    const result = state.authMode === "login"
+      ? await window.ResumeInsightAPI.login({ email, password })
+      : await window.ResumeInsightAPI.register({ email, password });
+    state.user = result.user || null;
+    renderAuthState();
+    closeAuthModal();
+    qs("#authPasswordInput").value = "";
+    if (state.report && state.careerProfile) {
+      await saveCurrentAnalysisToHistory({ silent: true });
+    } else {
+      await loadHistory({ silent: true });
+    }
+    showToast(result.message || (state.authMode === "login" ? "登录成功" : "注册成功"));
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setAuthBusy(false);
+  }
+}
+
+async function logoutUser() {
+  try {
+    await window.ResumeInsightAPI.logout();
+    state.user = null;
+    state.historyItems = [];
+    renderAuthState();
+    renderHistoryList();
+    closeAuthModal();
+    closeHistoryModal();
+    showToast("已退出登录");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function analyze() {
   const payload = readPayload();
   if (!payload.resumeText && !payload.file) {
@@ -304,6 +540,10 @@ async function analyze() {
     renderReport(report);
     persistAnalysis();
     resetChatPanel();
+    if (state.user) {
+      await refreshCurrentUser({ skipHistory: true });
+      await loadHistory({ silent: true });
+    }
     showToast("分析已生成");
   } catch (error) {
     if (error.data?.partial?.careerProfile) {
@@ -402,7 +642,7 @@ function showErrorState(message) {
   showToast(message);
 }
 
-function showPartialState(message) {
+function showPartialState(message, options = {}) {
   qs("#reportContent").hidden = true;
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
@@ -420,7 +660,7 @@ function showPartialState(message) {
   setChatAvailable(false);
   qs("#chatDock").classList.add("collapsed");
   qs("#chatToggleBtn").textContent = "展开";
-  showToast("已保留职业画像");
+  if (!options.silent) showToast("已保留职业画像");
 }
 
 function renderReport(report) {
@@ -550,12 +790,13 @@ function renderPerspectiveUpgrade(perspective) {
 }
 
 function renderDirections(items) {
+  const notice = state.report?.meta?.sectionNotices?.suitableDirections || "";
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => hasUsefulFields(item, ["title", "explanation"])).slice(0, 3)
+    ? items.filter((item) => isUsefulText(item?.title) && isUsefulText(item?.explanation)).slice(0, 3)
     : [];
-  setSectionVisibleByChild("#directionList", safeItems.length > 0);
+  setSectionVisibleByChild("#directionList", safeItems.length > 0 || isUsefulText(notice));
   if (!safeItems.length) {
-    qs("#directionList").innerHTML = "";
+    qs("#directionList").innerHTML = sectionNoticeHtml(notice);
     return;
   }
   qs("#directionList").innerHTML = safeItems.map((item, index) => `
@@ -568,16 +809,17 @@ function renderDirections(items) {
 }
 
 function renderRouteCards(items) {
+  const notice = state.report?.meta?.sectionNotices?.routeCards || "";
   const safeItems = Array.isArray(items)
-    ? items.filter((item) => isUsefulText(item?.title) || isUsefulText(item?.why || item?.reason) || isUsefulText(item?.risk) || isUsefulText(item?.nextStep || item?.firstStep)).slice(0, 4)
+    ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.why || item?.reason) || isUsefulText(item?.risk) || isUsefulText(item?.nextStep || item?.firstStep))).slice(0, 4)
     : [];
-  setSectionVisibleByChild("#routeCards", safeItems.length > 0);
+  setSectionVisibleByChild("#routeCards", safeItems.length > 0 || isUsefulText(notice));
   if (!safeItems.length) {
-    qs("#routeCards").innerHTML = "";
+    qs("#routeCards").innerHTML = sectionNoticeHtml(notice);
     return;
   }
 
-  qs("#routeCards").innerHTML = safeItems.map((item, index) => `
+  const cardsHtml = safeItems.map((item, index) => `
     <article class="result-card route-card">
       <span class="route-label">${escapeHtml(fallbackText(item.label) || `路线 ${index + 1}`)}</span>
       ${fallbackText(item.title) ? `<h4>${escapeHtml(fallbackText(item.title))}</h4>` : ""}
@@ -588,6 +830,7 @@ function renderRouteCards(items) {
       </dl>
     </article>
   `).join("");
+  qs("#routeCards").innerHTML = `${sectionNoticeHtml(notice)}${cardsHtml}`;
 }
 
 function renderNewPossibilities(items) {
@@ -785,6 +1028,35 @@ function persistAnalysis() {
   }));
 }
 
+function restoreAnalysis() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(analysisStorageKey) || "null");
+    if (!saved?.careerProfile) return false;
+
+    state.careerProfile = saved.careerProfile;
+    state.report = saved.overviewReport || null;
+    state.extractedResumeText = saved.extractedResumeText || qs("#resumeText").value.trim();
+    state.chatHistory = [];
+
+    closeIntakeModal();
+
+    if (state.report) {
+      renderReport(state.report);
+      resetChatPanel();
+      if (window.location.hash === "#overviewReport") {
+        window.requestAnimationFrame(() => qs("#overviewReport")?.scrollIntoView({ block: "start" }));
+      }
+      return true;
+    }
+
+    showPartialState(saved.error || "已保留职业画像。", { silent: true });
+    return true;
+  } catch {
+    localStorage.removeItem(analysisStorageKey);
+    return false;
+  }
+}
+
 function fillSample() {
   qs("#ageInput").value = "31";
   qs("#regionInput").value = "北京";
@@ -839,6 +1111,30 @@ function bindEvents() {
   qs("#sampleBtn").addEventListener("click", fillSample);
   qs("#clearBtn").addEventListener("click", clearAll);
   qs("#exportBtn").addEventListener("click", exportJson);
+  qs("#authBtn").addEventListener("click", () => openAuthModal("login"));
+  qs("#historyBtn").addEventListener("click", async () => {
+    openHistoryModal();
+    await loadHistory({ silent: true });
+  });
+  qs("#logoutBtn").addEventListener("click", logoutUser);
+  qs("#closeAuthBtn").addEventListener("click", closeAuthModal);
+  qs("#authModalScrim").addEventListener("click", closeAuthModal);
+  qs("#authModeLoginBtn").addEventListener("click", () => setAuthMode("login"));
+  qs("#authModeRegisterBtn").addEventListener("click", () => setAuthMode("register"));
+  qs("#authSubmitBtn").addEventListener("click", submitAuth);
+  qs("#authEmailInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") submitAuth();
+  });
+  qs("#authPasswordInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") submitAuth();
+  });
+  qs("#closeHistoryBtn").addEventListener("click", closeHistoryModal);
+  qs("#historyModalScrim").addEventListener("click", closeHistoryModal);
+  qs("#historyList").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-id]");
+    if (!button) return;
+    restoreHistory(button.dataset.id || "");
+  });
   qs("#openIntakeBtn").addEventListener("click", openIntakeModal);
   qs("#closeIntakeBtn").addEventListener("click", closeIntakeModal);
   qs("#modalScrim").addEventListener("click", closeIntakeModal);
@@ -866,7 +1162,14 @@ function bindEvents() {
 async function init() {
   bindEvents();
   restoreDraft();
-  setChatAvailable(false);
+  setAuthMode("login");
+  renderAuthState();
+  renderHistoryList();
+  if (!restoreAnalysis()) {
+    setChatAvailable(false);
+    openIntakeModal();
+  }
+  await refreshCurrentUser();
   await refreshHealth();
 }
 

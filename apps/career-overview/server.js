@@ -1,11 +1,14 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const mammoth = require("mammoth");
 const pdfParseModule = require("pdf-parse");
 
 const PUBLIC_DIR = __dirname;
 const ENV_FILE = path.join(PUBLIC_DIR, ".env");
+const DATA_DIR = path.resolve(PUBLIC_DIR, "..", ".resume-partner-data");
+const AUTH_STORE_FILE = path.join(DATA_DIR, "auth-store.json");
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return false;
@@ -44,6 +47,11 @@ const MAX_PROFILE_RESUME_TEXT_CHARS = Number(process.env.MAX_PROFILE_RESUME_TEXT
 const MAX_PROFILE_JSON_CHARS = Number(process.env.MAX_PROFILE_JSON_CHARS || 3_500);
 const MAX_MODULE_INPUT_CHARS = Number(process.env.MAX_MODULE_INPUT_CHARS || 1_000);
 const MAX_FILE_BYTES = Number(process.env.MAX_FILE_BYTES || 6_000_000);
+const SESSION_COOKIE_NAME = "resume_partner_session";
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 30 * 24 * 60 * 60 * 1000);
+const HISTORY_LIMIT_PER_USER = Number(process.env.HISTORY_LIMIT_PER_USER || 20);
+const PASSWORD_MIN_LENGTH = Number(process.env.PASSWORD_MIN_LENGTH || 8);
+const COOKIE_SECURE = String(process.env.COOKIE_SECURE || "").trim() === "true";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -53,6 +61,256 @@ const mimeTypes = {
   ".md": "text/markdown; charset=utf-8",
   ".svg": "image/svg+xml",
 };
+
+let authStoreCache = null;
+
+function ensureDirSync(dirPath) {
+  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function defaultAuthStore() {
+  return {
+    version: 1,
+    users: [],
+    sessions: [],
+  };
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function loadAuthStore() {
+  if (authStoreCache) return authStoreCache;
+  ensureDirSync(DATA_DIR);
+  if (!fs.existsSync(AUTH_STORE_FILE)) {
+    authStoreCache = defaultAuthStore();
+    return authStoreCache;
+  }
+  try {
+    const raw = fs.readFileSync(AUTH_STORE_FILE, "utf8");
+    const parsed = raw.trim() ? JSON.parse(raw) : defaultAuthStore();
+    authStoreCache = {
+      version: 1,
+      users: Array.isArray(parsed.users) ? parsed.users : [],
+      sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    };
+  } catch {
+    authStoreCache = defaultAuthStore();
+  }
+  return authStoreCache;
+}
+
+function saveAuthStore(store) {
+  ensureDirSync(DATA_DIR);
+  const safeStore = {
+    version: 1,
+    users: Array.isArray(store?.users) ? store.users : [],
+    sessions: Array.isArray(store?.sessions) ? store.sessions : [],
+  };
+  const tempFile = `${AUTH_STORE_FILE}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(safeStore, null, 2), "utf8");
+  fs.renameSync(tempFile, AUTH_STORE_FILE);
+  authStoreCache = safeStore;
+  return safeStore;
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function generateId(size = 18) {
+  return crypto.randomBytes(size).toString("hex");
+}
+
+function hashPassword(password, salt = generateId(16)) {
+  const derived = crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
+  return { salt, hash: derived };
+}
+
+function verifyPassword(password, salt, expectedHash) {
+  const actualHash = crypto.scryptSync(String(password || ""), salt, 64).toString("hex");
+  const actual = Buffer.from(actualHash, "hex");
+  const expected = Buffer.from(String(expectedHash || ""), "hex");
+  if (actual.length !== expected.length) return false;
+  return crypto.timingSafeEqual(actual, expected);
+}
+
+function validateEmailAndPassword(email, password) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    throw new Error("请输入有效的邮箱地址。");
+  }
+  const plainPassword = String(password || "");
+  if (plainPassword.length < PASSWORD_MIN_LENGTH) {
+    throw new Error(`密码至少需要 ${PASSWORD_MIN_LENGTH} 位。`);
+  }
+  return { normalizedEmail, plainPassword };
+}
+
+function safeUser(user) {
+  const history = Array.isArray(user?.history) ? user.history : [];
+  return {
+    id: user?.id || "",
+    email: user?.email || "",
+    createdAt: user?.createdAt || "",
+    lastLoginAt: user?.lastLoginAt || "",
+    historyCount: history.length,
+  };
+}
+
+function parseCookies(req) {
+  const cookieHeader = String(req.headers.cookie || "");
+  const pairs = cookieHeader.split(/;\s*/).filter(Boolean);
+  const cookies = {};
+  for (const pair of pairs) {
+    const index = pair.indexOf("=");
+    if (index < 0) continue;
+    const key = pair.slice(0, index).trim();
+    const value = pair.slice(index + 1).trim();
+    cookies[key] = decodeURIComponent(value);
+  }
+  return cookies;
+}
+
+function serializeCookie(name, value, options = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`];
+  if (options.maxAge !== undefined) parts.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`);
+  parts.push(`Path=${options.path || "/"}`);
+  parts.push(`SameSite=${options.sameSite || "Lax"}`);
+  if (options.httpOnly !== false) parts.push("HttpOnly");
+  if (options.secure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function sessionCookie(value, maxAgeMs = SESSION_TTL_MS) {
+  return serializeCookie(SESSION_COOKIE_NAME, value, {
+    maxAge: Math.floor(maxAgeMs / 1000),
+    secure: COOKIE_SECURE,
+  });
+}
+
+function clearSessionCookie() {
+  return serializeCookie(SESSION_COOKIE_NAME, "", {
+    maxAge: 0,
+    secure: COOKIE_SECURE,
+  });
+}
+
+function pruneExpiredSessions(store) {
+  const now = Date.now();
+  store.sessions = (Array.isArray(store.sessions) ? store.sessions : []).filter((session) => {
+    const expiresAt = Date.parse(session?.expiresAt || "");
+    return Number.isFinite(expiresAt) && expiresAt > now;
+  });
+}
+
+function createSession(store, userId) {
+  pruneExpiredSessions(store);
+  const now = new Date();
+  const session = {
+    id: generateId(24),
+    userId,
+    createdAt: now.toISOString(),
+    lastSeenAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
+  };
+  store.sessions.push(session);
+  return session;
+}
+
+function getAuthContext(req) {
+  const cookies = parseCookies(req);
+  const sessionId = cookies[SESSION_COOKIE_NAME];
+  if (!sessionId) return { store: loadAuthStore(), session: null, user: null };
+  const store = loadAuthStore();
+  pruneExpiredSessions(store);
+  const session = store.sessions.find((item) => item.id === sessionId) || null;
+  if (!session) return { store, session: null, user: null };
+  const user = store.users.find((item) => item.id === session.userId) || null;
+  if (!user) return { store, session: null, user: null };
+  return { store, session, user };
+}
+
+function requireAuth(req, res) {
+  const context = getAuthContext(req);
+  if (!context.user) {
+    sendJson(res, 401, { error: "请先登录账号。" });
+    return null;
+  }
+  return context;
+}
+
+function buildAnalysisFingerprint(report, careerProfile, extractedResumeText = "") {
+  return crypto.createHash("sha256")
+    .update(JSON.stringify({
+      report: report || {},
+      careerProfile: careerProfile || {},
+      extractedResumeText: normalizeText(extractedResumeText, 4000),
+    }))
+    .digest("hex");
+}
+
+function buildAnalysisTitle(report, careerProfile) {
+  const snapshot = report?.identitySnapshot || {};
+  const basic = careerProfile?.basic || {};
+  return normalizeText(
+    snapshot.destination
+      || basic.targetDirection
+      || basic.targetGoal
+      || report?.suitableDirections?.[0]?.title
+      || "职业发展分析",
+    60
+  );
+}
+
+function buildHistorySummary(entry) {
+  return {
+    id: entry.id,
+    title: entry.title,
+    createdAt: entry.createdAt,
+    targetGoal: entry.targetGoal || "",
+    targetDirection: entry.targetDirection || "",
+    identityWho: entry.identityWho || "",
+    identityDestination: entry.identityDestination || "",
+    score: entry.score ?? null,
+  };
+}
+
+function saveAnalysisToUserHistory(user, report, careerProfile, extractedResumeText = "") {
+  if (!user || !report || !careerProfile) return null;
+  const history = Array.isArray(user.history) ? user.history : [];
+  const fingerprint = buildAnalysisFingerprint(report, careerProfile, extractedResumeText);
+  const existing = history.find((item) => item.fingerprint === fingerprint);
+  if (existing) return existing;
+
+  const entry = {
+    id: generateId(12),
+    fingerprint,
+    createdAt: new Date().toISOString(),
+    title: buildAnalysisTitle(report, careerProfile),
+    targetGoal: normalizeText(careerProfile?.basic?.targetGoal, 40),
+    targetDirection: normalizeText(careerProfile?.basic?.targetDirection, 60),
+    identityWho: normalizeText(report?.identitySnapshot?.who, 80),
+    identityDestination: normalizeText(report?.identitySnapshot?.destination, 80),
+    score: Number.isFinite(Number(report?.peerScore?.score)) ? Math.max(0, Math.min(10, Number(report.peerScore.score))) : null,
+    report: cloneJson(report),
+    careerProfile: cloneJson(careerProfile),
+    extractedResumeText: normalizeText(extractedResumeText, MAX_RESUME_TEXT_CHARS),
+  };
+
+  user.history = [entry, ...history].slice(0, HISTORY_LIMIT_PER_USER);
+  return entry;
+}
+
+function trySaveHistoryForRequest(req, report, careerProfile, extractedResumeText = "") {
+  const context = getAuthContext(req);
+  if (!context.user) return null;
+  const entry = saveAnalysisToUserHistory(context.user, report, careerProfile, extractedResumeText);
+  context.user.lastSeenAt = new Date().toISOString();
+  if (entry) saveAuthStore(context.store);
+  return entry;
+}
 
 const jsonOnlyContract = [
   "只返回一个合法 JSON 对象。",
@@ -67,7 +325,7 @@ const careerJudgmentPrinciples = [
   "不要只复述经历，要判断经历背后形成了什么能力；如果简历写不清楚，要直接指出表达问题。",
   "量化结果重要，但不能替代能力判断。输出时先说能力，再说证据和结果。",
   "要区分执行、战术、战略三个层级：执行者完成任务，战术型人才设计打法，战略型人才理解目标、布局和取舍。",
-  "要看视野。比如写一篇稿子不只是写稿，而可能是在证明观点、服务传播布局、逐步建立公司认知。",
+  "要看视野。比如做一个项目不只是完成任务，而可能是在证明判断、服务整体目标、逐步建立方法论。",
   "要区分学术、科研、工业、商业、创作等方向的本质差异，关注用户的倾向、动机和适配环境。",
   "未来更重要的是优秀判断和设计能力。AI 会替代重复劳动，但难以替代发现不可能中的可能、创造交互价值和做复杂取舍。",
   "输出必须具体到简历证据、表达缺口、能力层级和下一步动作，避免泛泛鼓励。",
@@ -111,7 +369,7 @@ const overviewJsonContract = [
   "JSON 顶层字段必须为：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, routeCards, suitableDirections, newPossibilities, shortcomings, improvementAdvice, closingEncouragement, moduleRecommendations。",
   "必须按分层结构输出。不要因为某个子字段证据不足就省略整块；能判断的字段先输出，不能判断的字段写清楚缺少哪类信息，不要只写“信息不足”。",
   "identitySnapshot：字段 who, destination, stage。分别回答“你是谁”“你想去哪”“你到哪一步了”，每项不超过 70 个中文字符。",
-  "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。必须像产品诊断，不要像简历摘要；coreAbility 要命名为独特能力标签，例如“内容安全体系化设计能力”“风险信号翻译能力”；evidence 必须引用 career_profile 的具体项目或事实；expressionGap 必须指出为什么招聘方看不懂；nextProof 必须是一个可执行补证动作。",
+  "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。必须像产品诊断，不要像简历摘要；coreAbility 要命名为独特能力标签，例如“结构化问题拆解能力”“跨场景证据转译能力”；evidence 必须引用 career_profile 的具体项目或事实；expressionGap 必须指出为什么招聘方看不懂；nextProof 必须是一个可执行补证动作。",
   "peerScore：字段 score, explanation。score 为 0-10；这是职业评分，不是同龄排名。必须给出谨慎估分；explanation 以肯定、看见优势和鼓励为主，最后轻轻补一句还需要哪类证据来校准。",
   "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。证据不足时 currentEvidence 写具体缺口，usableScenes 写可验证场景。",
   "perspectiveUpgrade：字段 currentLayer, nextLayer, example。说明用户目前更像执行/战术/战略哪一层，以及如何往上一层看问题；缺例子时写需要补充哪类经历才能判断。",
@@ -232,8 +490,11 @@ const resumeChatSystemPrompt = [
   "不要输出 JSON，不要输出表格，不要做与职业发展无关的闲聊。",
 ].join("\n");
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+function sendJson(res, status, body, extraHeaders = {}) {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...extraHeaders,
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -700,73 +961,118 @@ function uniqueNonEmpty(items, limit = 6) {
 function normalizeDirectionTitle(text) {
   const value = String(text || "").trim();
   if (!value) return "";
-  if (/数据|SQL|Python|R语言|治理|分析/.test(value)) return "数据分析 / 数据治理岗";
-  if (/策略|风控|风险|合规|隐私|算法/.test(value)) return "风险策略 / 合规分析岗";
-  if (/公关|品牌|传播|舆情|内容|媒体/.test(value)) return "品牌公关 / 舆情策略岗";
-  if (/产品|用户|增长|运营/.test(value)) return "产品运营 / 用户增长岗";
-  if (/研究|咨询|行业/.test(value)) return "行业研究 / 咨询助理岗";
-  if (/留学|专业|申请/.test(value)) return "留学专业规划 / 申请策略方向";
-  return value.length > 18 ? value.slice(0, 18) : value;
+  return value.length > 28 ? value.slice(0, 28) : value;
 }
 
 function buildDirectionCandidates(careerProfile) {
   const basic = careerProfile?.basic || {};
-  const text = profileTexts(careerProfile);
   const targetParts = String(basic.targetDirection || "")
     .split(/[、，,\/；;\n]/)
     .map(normalizeDirectionTitle)
     .filter(Boolean);
+  const thoughtParts = extractDirectionAnchors(basic.currentThought || "").map(normalizeDirectionTitle).filter(Boolean);
   const signalParts = Array.isArray(careerProfile?.careerSignals)
-    ? careerProfile.careerSignals.map(normalizeDirectionTitle).filter(Boolean)
+    ? careerProfile.careerSignals.flatMap((item) => extractDirectionAnchors(item).map(normalizeDirectionTitle)).filter(Boolean)
     : [];
-  const inferred = [
-    /数据|SQL|Python|R语言|治理|分析/.test(text) ? "数据分析 / 数据治理岗" : "",
-    /策略|风控|风险|合规|隐私|算法/.test(text) ? "风险策略 / 合规分析岗" : "",
-    /公关|品牌|传播|舆情|内容|媒体/.test(text) ? "品牌公关 / 舆情策略岗" : "",
-    /产品|用户|增长|运营/.test(text) ? "产品运营 / 用户增长岗" : "",
-    /研究|咨询|行业/.test(text) ? "行业研究 / 咨询助理岗" : "",
-  ].filter(Boolean);
 
   return uniqueNonEmpty([
     ...targetParts,
-    ...inferred,
+    ...thoughtParts,
     ...signalParts,
-    "业务分析 / 项目运营岗",
-    "行业研究 / 策略支持岗",
-    "内容运营 / 项目助理岗",
   ], 5);
+}
+
+const genericDirectionTokens = new Set([
+  "方向",
+  "岗位",
+  "职业",
+  "路径",
+  "路线",
+  "场景",
+  "工作",
+  "策略",
+  "分析",
+  "运营",
+  "项目",
+  "业务",
+  "管理",
+  "助理",
+  "专员",
+  "执行",
+]);
+
+function extractDirectionAnchors(text) {
+  return uniqueNonEmpty(String(text || "")
+    .split(/[、，,\/；;\n|]+/)
+    .map((item) => item.trim())
+    .map((item) => item.replace(/(岗位|方向|路线|路径|场景|职业|工作|岗|类岗位)$/g, "").trim())
+    .filter((item) => item.length >= 2 && !genericDirectionTokens.has(item)), 6);
+}
+
+function buildDirectionSupportPool(careerProfile) {
+  const basic = careerProfile?.basic || {};
+  const experiences = Array.isArray(careerProfile?.experienceSummary) ? careerProfile.experienceSummary : [];
+  const skills = Array.isArray(careerProfile?.skills) ? careerProfile.skills : [];
+  const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
+  const careerSignals = Array.isArray(careerProfile?.careerSignals) ? careerProfile.careerSignals : [];
+  const evidence = Array.isArray(careerProfile?.evidence) ? careerProfile.evidence : [];
+
+  return uniqueNonEmpty([
+    basic.targetDirection,
+    basic.currentThought,
+    basic.targetGoal,
+    basic.major,
+    ...careerSignals,
+    ...experiences.flatMap((item) => [item?.title, item?.evidence]),
+    ...skills.flatMap((item) => [item?.name, item?.evidence]),
+    ...strengths.flatMap((item) => [item?.name, item?.evidence]),
+    ...evidence,
+  ], 80);
+}
+
+function findDirectionEvidence(title, careerProfile, limit = 2) {
+  const anchors = extractDirectionAnchors(title);
+  if (!anchors.length) return [];
+  const pool = buildDirectionSupportPool(careerProfile);
+  const matches = [];
+
+  for (const item of pool) {
+    const text = String(item || "").trim();
+    if (!text) continue;
+    if (anchors.some((anchor) => text.includes(anchor))) {
+      matches.push(text.length > 56 ? `${text.slice(0, 56)}...` : text);
+    }
+    if (matches.length >= limit) break;
+  }
+
+  return uniqueNonEmpty(matches, limit);
+}
+
+function hasDirectionSupport(title, careerProfile) {
+  return findDirectionEvidence(title, careerProfile, 1).length > 0;
+}
+
+function ensureSectionNotice(report, key, message) {
+  if (!isUsefulTextValue(message)) return;
+  report.meta = report.meta && typeof report.meta === "object" ? report.meta : {};
+  report.meta.sectionNotices = report.meta.sectionNotices && typeof report.meta.sectionNotices === "object"
+    ? report.meta.sectionNotices
+    : {};
+  report.meta.sectionNotices[key] = message;
 }
 
 function buildDirectionExplanation(title, parts, index = 0) {
   const {
+    careerProfile,
     coreAbility,
-    evidenceText,
     missing,
-    topSkill,
   } = parts;
-  const text = String(title || "");
+  const text = String(title || "").trim();
+  if (!text) return "";
+  const evidenceSnippets = findDirectionEvidence(text, careerProfile, 2);
+  if (!evidenceSnippets.length) return "";
   const missingTip = missing[index] ? `后续补充“${missing[index]}”，判断会更稳。` : "后续用一个代表项目验证匹配强度。";
-  const skillTip = pickUsefulText([topSkill?.name, coreAbility], coreAbility);
-
-  if (/公关|品牌|传播|舆情|内容|媒体/.test(text)) {
-    return `这个方向会用到你对舆情、公众表达和风险沟通的理解，优势是把事件判断转成可执行口径。下一步准备一个传播策略或危机响应案例。`;
-  }
-  if (/风险|合规|策略|隐私|算法|审核/.test(text)) {
-    return `这个方向更看重你把风险信号转成规则、流程和判断标准的能力，适合内容安全、平台治理、合规审核等场景。${missingTip}`;
-  }
-  if (/数据|治理|SQL|Python/.test(text)) {
-    return `这个方向能承接你的${skillTip}和治理框架经验，适合把复杂流程、口径和标准沉淀成可复用的分析体系。下一步补一个从问题定义、数据处理到结果复盘的项目案例。`;
-  }
-  if (/产品|运营|增长|用户/.test(text)) {
-    return `这个方向适合把你的项目推进和规则设计经验转成用户、流程和指标意识。下一步找一个产品或运营问题，写清目标、动作、指标和反馈。`;
-  }
-  if (/研究|咨询|行业/.test(text)) {
-    return `这个方向需要把零散信息整理成判断框架，和你的${coreAbility}相近。下一步选一个行业议题，输出一页观点、证据和建议。`;
-  }
-  if (/留学|专业|申请/.test(text)) {
-    return `这个方向适合继续把职业目标和专业选择连接起来，重点不是泛泛申请，而是证明你为什么需要这段学习。下一步补充 GPA、语言、预算和目标国家。`;
-  }
-  return `这个方向和你已有的${coreAbility}有关，但需要进一步验证岗位场景。下一步用“${evidenceText}”改写一个项目案例，看它能否对应目标岗位要求。`;
+  return `和“${text}”最相关的简历证据是：${evidenceSnippets.join("；")}。它更像在证明你的${coreAbility}，但还需要一个直接对应岗位要求的案例。${missingTip}`;
 }
 
 function isRepeatedDirectionExplanation(items, index) {
@@ -820,6 +1126,7 @@ function buildOverviewFallbackParts(careerProfile) {
   ));
 
   return {
+    careerProfile,
     basic,
     strengths,
     weaknesses,
@@ -902,21 +1209,22 @@ function ensureOverviewFields(report, careerProfile) {
     missing.length ? `如果再补充${missing.slice(0, 2).join("、")}，这份评分会更准确。` : "后续只要把代表项目讲清楚，职业画像会更立体。",
   ].join(""), "peerScore.explanation");
 
+  const sceneTargets = directions.length ? directions : ["待进一步验证的岗位场景"];
   const abilityDefaults = [
     {
       name: `${pickUsefulText([topSkill.name, abilitySignals[0], "结构化分析"], "结构化分析")}能力`,
       currentEvidence: pickUsefulText([topSkill.evidence, evidence[0], evidenceText], evidenceText),
-      usableScenes: `可用于${directions[0]}中的信息整理、问题拆解和结果复盘。`,
+      usableScenes: `可用于${sceneTargets[0]}中的信息整理、问题拆解和结果复盘。`,
     },
     {
       name: `${pickUsefulText([topStrength.name, abilitySignals[1], "问题判断"], "问题判断")}能力`,
       currentEvidence: pickUsefulText([topStrength.evidence, evidence[1], expressionGap], expressionGap),
-      usableScenes: `可用于${directions[1] || directions[0]}中的需求判断、风险识别和方案选择。`,
+      usableScenes: `可用于${sceneTargets[1] || sceneTargets[0]}中的需求判断、风险识别和方案选择。`,
     },
     {
       name: "经历转译与跨场景迁移能力",
       currentEvidence: pickUsefulText([topExperience.title, evidence[2], "已有经历需要进一步转译成岗位语言。"], "已有经历需要进一步转译成岗位语言。"),
-      usableScenes: `可用于${directions[2] || directions[0]}的简历表达、面试叙事和岗位匹配。`,
+      usableScenes: `可用于${sceneTargets[2] || sceneTargets[0]}的简历表达、面试叙事和岗位匹配。`,
     },
   ];
   safeReport.abilityFields = Array.isArray(safeReport.abilityFields) ? safeReport.abilityFields.slice(0, 3) : [];
@@ -938,94 +1246,65 @@ function ensureOverviewFields(report, careerProfile) {
     topExperience.title ? `把“${topExperience.title}”改写成目标、动作、结果三段。` : "",
   ], "不要只写做过什么，要说明这件事想解决什么问题、怎么判断、结果如何。"), "perspectiveUpgrade.example");
 
-  const directionDefaults = directions.slice(0, 3).map((title, index) => ({
-    title,
-    explanation: buildDirectionExplanation(title, parts, index),
-  }));
-  safeReport.suitableDirections = Array.isArray(safeReport.suitableDirections) ? safeReport.suitableDirections.slice(0, 3) : [];
-  while (safeReport.suitableDirections.length < 3) safeReport.suitableDirections.push({});
-  safeReport.suitableDirections = safeReport.suitableDirections.map((item, index) => {
+  const sourceDirections = Array.isArray(safeReport.suitableDirections) ? safeReport.suitableDirections.slice(0, 6) : [];
+  const supportedDirections = [];
+  for (const item of sourceDirections) {
     const safeItem = item && typeof item === "object" ? item : {};
-    const preset = directionDefaults[index] || directionDefaults[0];
-    setTextIfMissing(safeReport, safeItem, "title", preset.title, `suitableDirections.${index}.title`);
-    if (!isUsefulTextValue(safeItem.explanation) || isRepeatedDirectionExplanation(safeReport.suitableDirections, index)) {
-      safeItem.explanation = buildDirectionExplanation(safeItem.title || preset.title, parts, index);
-      markFilled(safeReport, `suitableDirections.${index}.explanation`);
-    }
-    return safeItem;
-  });
+    const title = normalizeDirectionTitle(safeItem.title);
+    if (!isUsefulTextValue(title) || !hasDirectionSupport(title, careerProfile)) continue;
+    const explanation = isUsefulTextValue(safeItem.explanation)
+      ? String(safeItem.explanation).trim()
+      : buildDirectionExplanation(title, parts, supportedDirections.length);
+    if (!isUsefulTextValue(explanation)) continue;
+    if (supportedDirections.some((entry) => entry.title === title)) continue;
+    supportedDirections.push({ title, explanation });
+    if (supportedDirections.length >= 3) break;
+  }
+  safeReport.suitableDirections = supportedDirections;
+  if (!supportedDirections.length) {
+    ensureSectionNotice(
+      safeReport,
+      "suitableDirections",
+      directions.length
+        ? `你主动写了“${directions[0]}”，但现有简历证据还不足以稳定判断适配度，所以这里先不强推方向。`
+        : "现有简历证据不足以稳定判断适合方向，所以这里先不强推方向。"
+    );
+  }
 
-  const routeDefaults = [
-    {
-      label: "最高薪路线",
-      title: directions[0],
-      why: `优先选择能放大${coreAbility}、且薪资天花板更高的方向。`,
-      risk: missing[0] ? `风险是缺少“${missing[0]}”，短期竞争力不够稳定。` : "风险是岗位门槛更高，需要更硬的项目证据。",
-      nextStep: "用 5 个目标 JD 反推必补技能和作品证据。",
-    },
-    {
-      label: "最快上岸路线",
-      title: directions[1] || directions[0],
-      why: `和现有经历距离最近，可以先把“${coreAbility}”包装成岗位语言。`,
-      risk: "可能不是长期天花板最高的路线，但能更快拿到市场反馈。",
-      nextStep: "用现有经历改一版投递简历，先投 10 个相近岗位。",
-    },
-    {
-      label: "最轻松路线",
-      title: directions[2] || "业务分析 / 项目运营岗",
-      why: "沿用已有行业理解、协作方式和表达经验，短期学习成本较低。",
-      risk: "容易停在执行层，需要主动补目标、判断和结果证据。",
-      nextStep: "列出 3 个不用大幅补课也能胜任的岗位。",
-    },
-    {
-      label: "均衡路线",
-      title: directions[3] || "行业研究 / 策略支持岗",
-      why: "兼顾进入难度、成长空间和后续迁移可能。",
-      risk: "需要更清楚地排序目标，避免同时追求所有方向。",
-      nextStep: "设定一个 30 天验证任务，保留投递和反馈数据。",
-    },
-  ];
-  safeReport.routeCards = Array.isArray(safeReport.routeCards) ? safeReport.routeCards.slice(0, 4) : [];
-  while (safeReport.routeCards.length < 4) safeReport.routeCards.push({});
-  safeReport.routeCards = safeReport.routeCards.map((item, index) => {
+  const sourceRoutes = Array.isArray(safeReport.routeCards) ? safeReport.routeCards.slice(0, 6) : [];
+  const supportedRoutes = [];
+  for (const item of sourceRoutes) {
     const safeItem = item && typeof item === "object" ? item : {};
-    const preset = routeDefaults[index];
-    if (!isUsefulTextValue(safeItem.label)) {
-      safeItem.label = preset.label;
-      markFilled(safeReport, `routeCards.${index}.label`);
-    }
-    if (!isUsefulTextValue(safeItem.title) || isGenericRouteTitle(safeItem.title)) {
-      safeItem.title = preset.title;
-      markFilled(safeReport, `routeCards.${index}.title`);
-    }
-    setTextIfMissing(safeReport, safeItem, "why", preset.why, `routeCards.${index}.why`);
-    setTextIfMissing(safeReport, safeItem, "risk", preset.risk, `routeCards.${index}.risk`);
-    setTextIfMissing(safeReport, safeItem, "nextStep", preset.nextStep, `routeCards.${index}.nextStep`);
-    return safeItem;
-  });
+    const title = normalizeDirectionTitle(safeItem.title);
+    if (!isUsefulTextValue(title) || isGenericRouteTitle(title) || !hasDirectionSupport(title, careerProfile)) continue;
+    const why = isUsefulTextValue(safeItem.why) ? String(safeItem.why).trim() : buildDirectionExplanation(title, parts, supportedRoutes.length);
+    const risk = isUsefulTextValue(safeItem.risk) ? String(safeItem.risk).trim() : "";
+    const nextStep = isUsefulTextValue(safeItem.nextStep) ? String(safeItem.nextStep).trim() : "";
+    if (!isUsefulTextValue(why) && !isUsefulTextValue(risk) && !isUsefulTextValue(nextStep)) continue;
+    supportedRoutes.push({
+      label: isUsefulTextValue(safeItem.label) ? String(safeItem.label).trim() : "",
+      title,
+      why,
+      risk,
+      nextStep,
+    });
+    if (supportedRoutes.length >= 4) break;
+  }
+  safeReport.routeCards = supportedRoutes;
+  if (!supportedRoutes.length) {
+    ensureSectionNotice(safeReport, "routeCards", "现有简历证据不足以稳定比较多条职业路径，所以这里先不强行生成四条路线。");
+  } else if (supportedRoutes.length < 4) {
+    ensureSectionNotice(safeReport, "routeCards", "这次只展示证据最强的路径，不强行凑满四条路线。");
+  }
 
-  const possibilityDefaults = [
-    {
-      title: `${directions[0]}的作品验证`,
-      reason: `你的经历里已经有${coreAbility}的线索，但需要变成可展示作品。`,
-      firstTry: "选一个项目写成 300 字案例：问题、动作、结果、复盘。",
-    },
-    {
-      title: `${directions[1] || directions[0]}的相邻迁移`,
-      reason: "如果目标岗位短期门槛高，可以先从相邻岗位拿反馈，再迭代简历证据。",
-      firstTry: "找 3 个相邻岗位 JD，标出重复出现的能力词。",
-    },
-  ];
-  safeReport.newPossibilities = Array.isArray(safeReport.newPossibilities) ? safeReport.newPossibilities.slice(0, 2) : [];
-  while (safeReport.newPossibilities.length < 2) safeReport.newPossibilities.push({});
-  safeReport.newPossibilities = safeReport.newPossibilities.map((item, index) => {
-    const safeItem = item && typeof item === "object" ? item : {};
-    const preset = possibilityDefaults[index];
-    setTextIfMissing(safeReport, safeItem, "title", preset.title, `newPossibilities.${index}.title`);
-    setTextIfMissing(safeReport, safeItem, "reason", preset.reason, `newPossibilities.${index}.reason`);
-    setTextIfMissing(safeReport, safeItem, "firstTry", preset.firstTry, `newPossibilities.${index}.firstTry`);
-    return safeItem;
-  });
+  const sourcePossibilities = Array.isArray(safeReport.newPossibilities) ? safeReport.newPossibilities.slice(0, 4) : [];
+  safeReport.newPossibilities = sourcePossibilities
+    .map((item) => (item && typeof item === "object" ? item : {}))
+    .filter((item) => {
+      if (!isUsefulTextValue(item.title) || !isUsefulTextValue(item.reason || item.firstTry)) return false;
+      return hasDirectionSupport(item.title, careerProfile) || extractDirectionAnchors(item.title).length === 0;
+    })
+    .slice(0, 2);
 
   const shortcomings = ensureObjectField(safeReport, "shortcomings");
   setTextIfMissing(safeReport, shortcomings, "summary", "当前最大短板不是经历少，而是经历和能力之间的证据链还不够清楚。", "shortcomings.summary");
@@ -1059,8 +1338,9 @@ function ensureOverviewFields(report, careerProfile) {
     markFilled(safeReport, "closingEncouragement");
   }
 
+  const leadingDirection = directions[0] || "岗位方向";
   const moduleDefaults = [
-    { module: "career", reason: `继续拆${directions[0]}等岗位的匹配度和进入路径。`, suggestedQuestion: "我应该优先投哪些岗位，为什么？" },
+    { module: "career", reason: isUsefulTextValue(directions[0]) ? `继续拆${leadingDirection}等岗位的匹配度和进入路径。` : "继续拆岗位匹配度和进入路径。", suggestedQuestion: "我应该优先投哪些岗位，为什么？" },
     { module: "study", reason: "如果考虑留学或转专业，需要把职业目标和专业选择连接起来。", suggestedQuestion: "我适合申请哪些专业方向？" },
     { module: "ability", reason: `把${coreAbility}、短板和训练任务拆成可执行能力地图。`, suggestedQuestion: "我最该补哪几项能力？" },
   ];
@@ -1361,6 +1641,11 @@ async function handleAnalyzeResume(req, res) {
       };
       report.careerProfile = careerProfile;
       report.extractedResumeText = resumeText;
+      const savedEntry = trySaveHistoryForRequest(req, report, careerProfile, resumeText);
+      if (savedEntry) {
+        report.meta.historySaved = true;
+        report.meta.historyId = savedEntry.id;
+      }
       sendJson(res, 200, report);
     } catch (error) {
       sendJson(res, 502, {
@@ -1487,6 +1772,11 @@ async function handleCreateOverview(req, res) {
       };
       report.careerProfile = payload.careerProfile;
       report.extractedResumeText = normalizeText(payload.extractedResumeText);
+      const savedEntry = trySaveHistoryForRequest(req, report, payload.careerProfile, payload.extractedResumeText);
+      if (savedEntry) {
+        report.meta.historySaved = true;
+        report.meta.historyId = savedEntry.id;
+      }
       sendJson(res, 200, report);
     } catch (error) {
       sendJson(res, 422, {
@@ -1683,6 +1973,167 @@ async function handleTestAi(req, res) {
   }
 }
 
+async function handleAuthRegister(req, res) {
+  try {
+    const payload = await readJson(req);
+    const { normalizedEmail, plainPassword } = validateEmailAndPassword(payload.email, payload.password);
+    const store = loadAuthStore();
+    pruneExpiredSessions(store);
+    const existing = store.users.find((item) => item.email === normalizedEmail);
+    if (existing) {
+      sendJson(res, 409, { error: "这个邮箱已经注册过了，请直接登录。" });
+      return;
+    }
+
+    const passwordData = hashPassword(plainPassword);
+    const now = new Date().toISOString();
+    const user = {
+      id: generateId(12),
+      email: normalizedEmail,
+      passwordSalt: passwordData.salt,
+      passwordHash: passwordData.hash,
+      createdAt: now,
+      lastLoginAt: now,
+      history: [],
+    };
+    store.users.push(user);
+    const session = createSession(store, user.id);
+    saveAuthStore(store);
+    sendJson(res, 200, {
+      ok: true,
+      user: safeUser(user),
+      message: "账号已创建。",
+    }, {
+      "Set-Cookie": sessionCookie(session.id),
+    });
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+  }
+}
+
+async function handleAuthLogin(req, res) {
+  try {
+    const payload = await readJson(req);
+    const normalizedEmail = normalizeEmail(payload.email);
+    const plainPassword = String(payload.password || "");
+    if (!normalizedEmail || !plainPassword) {
+      sendJson(res, 400, { error: "请输入邮箱和密码。" });
+      return;
+    }
+
+    const store = loadAuthStore();
+    pruneExpiredSessions(store);
+    const user = store.users.find((item) => item.email === normalizedEmail);
+    if (!user || !verifyPassword(plainPassword, user.passwordSalt, user.passwordHash)) {
+      sendJson(res, 401, { error: "邮箱或密码不正确。" });
+      return;
+    }
+
+    user.lastLoginAt = new Date().toISOString();
+    const session = createSession(store, user.id);
+    saveAuthStore(store);
+    sendJson(res, 200, {
+      ok: true,
+      user: safeUser(user),
+      message: "登录成功。",
+    }, {
+      "Set-Cookie": sessionCookie(session.id),
+    });
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+  }
+}
+
+async function handleAuthLogout(req, res) {
+  const context = getAuthContext(req);
+  if (context.session) {
+    context.store.sessions = context.store.sessions.filter((item) => item.id !== context.session.id);
+    saveAuthStore(context.store);
+  }
+  sendJson(res, 200, { ok: true }, {
+    "Set-Cookie": clearSessionCookie(),
+  });
+}
+
+async function handleAuthMe(req, res) {
+  const context = getAuthContext(req);
+  if (!context.user) {
+    sendJson(res, 200, { ok: true, user: null });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    user: safeUser(context.user),
+  });
+}
+
+async function handleHistoryList(req, res) {
+  const context = requireAuth(req, res);
+  if (!context) return;
+  const history = Array.isArray(context.user.history) ? context.user.history : [];
+  sendJson(res, 200, {
+    ok: true,
+    items: history.map(buildHistorySummary),
+  });
+}
+
+async function handleHistoryDetail(req, res) {
+  const context = requireAuth(req, res);
+  if (!context) return;
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const historyId = normalizeText(url.searchParams.get("id"), 40);
+  if (!historyId) {
+    sendJson(res, 400, { error: "缺少历史记录 id。" });
+    return;
+  }
+  const history = Array.isArray(context.user.history) ? context.user.history : [];
+  const item = history.find((entry) => entry.id === historyId);
+  if (!item) {
+    sendJson(res, 404, { error: "没有找到这条历史记录。" });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    item: {
+      ...buildHistorySummary(item),
+      report: item.report,
+      careerProfile: item.careerProfile,
+      extractedResumeText: item.extractedResumeText,
+    },
+  });
+}
+
+async function handleHistorySave(req, res) {
+  try {
+    const context = requireAuth(req, res);
+    if (!context) return;
+    const payload = await readJson(req);
+    if (!payload.report || typeof payload.report !== "object") {
+      sendJson(res, 400, { error: "缺少报告内容。" });
+      return;
+    }
+    if (!payload.careerProfile || typeof payload.careerProfile !== "object") {
+      sendJson(res, 400, { error: "缺少职业画像。" });
+      return;
+    }
+
+    const entry = saveAnalysisToUserHistory(
+      context.user,
+      payload.report,
+      payload.careerProfile,
+      payload.extractedResumeText || ""
+    );
+    saveAuthStore(context.store);
+    sendJson(res, 200, {
+      ok: true,
+      item: buildHistorySummary(entry),
+      message: "报告已保存到你的历史记录。",
+    });
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+  }
+}
+
 function serveStatic(req, res) {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const requestedPath = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
@@ -1721,12 +2172,15 @@ function serveStatic(req, res) {
 
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/api/health") {
+    const store = loadAuthStore();
     sendJson(res, 200, {
       ok: true,
       app: "Resume Partner",
       provider: "deepseek",
       hasDeepSeekKey: Boolean(DEEPSEEK_API_KEY),
       envFileLoaded,
+      authEnabled: true,
+      usersCount: Array.isArray(store.users) ? store.users.length : 0,
       model: DEEPSEEK_MODEL,
 	      baseUrl: DEEPSEEK_BASE_URL,
 	      timeoutMs: AI_TIMEOUT_MS,
@@ -1742,8 +2196,43 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url === "/api/auth/me") {
+    handleAuthMe(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/auth/register") {
+    handleAuthRegister(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/auth/login") {
+    handleAuthLogin(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/auth/logout") {
+    handleAuthLogout(req, res);
+    return;
+  }
+
   if (req.method === "GET" && req.url === "/api/test-ai") {
     handleTestAi(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url.startsWith("/api/history")) {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    if (url.searchParams.get("id")) {
+      handleHistoryDetail(req, res);
+      return;
+    }
+    handleHistoryList(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/history") {
+    handleHistorySave(req, res);
     return;
   }
 

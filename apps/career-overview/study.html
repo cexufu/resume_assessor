@@ -13,11 +13,11 @@
           <span class="brand-mark" aria-hidden="true">RP</span>
           <div>
             <h1>留学与专业推荐</h1>
-            <p>比较专业方向、申请约束和职业连接</p>
+            <p>专业与远方，都不只有一种答案</p>
           </div>
         </div>
         <div class="top-actions">
-          <a class="ghost-link" href="./index.html">返回总览</a>
+          <a class="ghost-link" href="./index.html#overviewReport">返回总结果页</a>
           <span class="chat-status" id="moduleStatus">缺少画像</span>
           <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
         </div>
@@ -28,8 +28,8 @@
           <div class="panel-heading">
             <span class="step-badge">02</span>
             <div>
-              <h2>补充申请条件</h2>
-              <p>这里只生成留学和专业建议，不推荐具体学校排名</p>
+              <h2>你的申请目标</h2>
+              <p>专业路线只是众多可能的一种</p>
             </div>
           </div>
 
@@ -62,7 +62,6 @@
         <section class="report-panel" aria-label="留学专业分析结果">
           <div class="report-toolbar">
             <div>
-              <span class="eyebrow">子页面</span>
               <h2 id="moduleTitle">留学与专业推荐</h2>
             </div>
             <button class="ghost-button" id="exportBtn" type="button">导出 JSON</button>
@@ -75,6 +74,20 @@
             <div class="profile-summary" id="profileSummary"></div>
           </section>
           <section class="module-output" id="moduleOutput"></section>
+          <section class="result-section module-chat-section" aria-label="留学专业追问">
+            <div class="section-title">
+              <span>追</span>
+              <h3>继续追问</h3>
+            </div>
+            <div class="prompt-chips" id="modulePromptChips"></div>
+            <div class="chat-messages" id="moduleChatMessages">
+              <div class="chat-placeholder">完成本页分析后，可以继续追问专业匹配、申请短板和职业连接。</div>
+            </div>
+            <form class="chat-form" id="moduleChatForm">
+              <textarea id="moduleChatInput" rows="2" placeholder="例如：我现在最该补哪个申请短板？" disabled></textarea>
+              <button class="primary-button" id="moduleChatSendBtn" type="submit" disabled>发送</button>
+            </form>
+          </section>
         </section>
       </main>
 

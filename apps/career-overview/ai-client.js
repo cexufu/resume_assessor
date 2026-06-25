@@ -29,6 +29,54 @@ async function getHealth() {
   return requestJson("/api/health");
 }
 
+async function getCurrentUser() {
+  return requestJson("/api/auth/me");
+}
+
+async function register(payload) {
+  return requestJson("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+async function login(payload) {
+  return requestJson("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+async function logout() {
+  return requestJson("/api/auth/logout", {
+    method: "POST",
+    body: JSON.stringify({}),
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
+async function listHistory() {
+  return requestJson("/api/history", {
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+async function getHistoryItem(id) {
+  return requestJson(`/api/history?id=${encodeURIComponent(id)}`, {
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+async function saveHistory(payload) {
+  return requestJson("/api/history", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
 async function testAiConnection() {
   return requestJson("/api/test-ai");
 }
@@ -119,6 +167,13 @@ async function streamResumeChat(payload, onChunk) {
 
 window.ResumeInsightAPI = {
   getHealth,
+  getCurrentUser,
+  register,
+  login,
+  logout,
+  listHistory,
+  getHistoryItem,
+  saveHistory,
   testAiConnection,
   extractResumeText,
   analyzeResume,
