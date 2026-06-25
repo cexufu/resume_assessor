@@ -2,6 +2,9 @@ node_modules/
 .pnpm-store/
 .next/
 .env
+.DS_Store
+.resume-partner-data/
+apps/.resume-partner-data/
 *.log
 *.tsbuildinfo
 dist/

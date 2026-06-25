@@ -788,13 +788,12 @@ function renderPerspectiveUpgrade(perspective) {
 }
 
 function renderDirections(items) {
-  const notice = state.report?.meta?.sectionNotices?.suitableDirections || "";
   const safeItems = Array.isArray(items)
     ? items.filter((item) => isUsefulText(item?.title) && isUsefulText(item?.explanation)).slice(0, 3)
     : [];
-  setSectionVisibleByChild("#directionList", safeItems.length > 0 || isUsefulText(notice));
+  setSectionVisibleByChild("#directionList", safeItems.length > 0);
   if (!safeItems.length) {
-    qs("#directionList").innerHTML = sectionNoticeHtml(notice);
+    qs("#directionList").innerHTML = "";
     return;
   }
   qs("#directionList").innerHTML = safeItems.map((item, index) => `
@@ -807,13 +806,12 @@ function renderDirections(items) {
 }
 
 function renderRouteCards(items) {
-  const notice = state.report?.meta?.sectionNotices?.routeCards || "";
   const safeItems = Array.isArray(items)
     ? items.filter((item) => isUsefulText(item?.title) && (isUsefulText(item?.why || item?.reason) || isUsefulText(item?.risk) || isUsefulText(item?.nextStep || item?.firstStep))).slice(0, 4)
     : [];
-  setSectionVisibleByChild("#routeCards", safeItems.length > 0 || isUsefulText(notice));
+  setSectionVisibleByChild("#routeCards", safeItems.length > 0);
   if (!safeItems.length) {
-    qs("#routeCards").innerHTML = sectionNoticeHtml(notice);
+    qs("#routeCards").innerHTML = "";
     return;
   }
 
@@ -828,7 +826,7 @@ function renderRouteCards(items) {
       </dl>
     </article>
   `).join("");
-  qs("#routeCards").innerHTML = `${sectionNoticeHtml(notice)}${cardsHtml}`;
+  qs("#routeCards").innerHTML = cardsHtml;
 }
 
 function renderNewPossibilities(items) {
