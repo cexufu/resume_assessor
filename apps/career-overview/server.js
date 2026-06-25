@@ -346,10 +346,17 @@ function saveAnalysisToUserHistory(user, report, careerProfile, extractedResumeT
 function trySaveHistoryForRequest(req, report, careerProfile, extractedResumeText = "") {
   const context = getAuthContext(req);
   if (!context.user) return null;
-  const entry = saveAnalysisToUserHistory(context.user, report, careerProfile, extractedResumeText);
-  context.user.lastSeenAt = new Date().toISOString();
-  if (entry) saveAuthStore(context.store);
-  return entry;
+  try {
+    const entry = saveAnalysisToUserHistory(context.user, report, careerProfile, extractedResumeText);
+    context.user.lastSeenAt = new Date().toISOString();
+    if (entry) saveAuthStore(context.store);
+    return { entry, error: null };
+  } catch (error) {
+    return {
+      entry: null,
+      error: error instanceof Error ? error.message : String(error || "保存历史记录失败。"),
+    };
+  }
 }
 
 const jsonOnlyContract = [
@@ -1035,6 +1042,7 @@ function firstItem(items) {
 
 function ensureCareerProfileFields(profile, payload = {}, resumeText = "") {
   const safeProfile = profile && typeof profile === "object" ? profile : {};
+  const context = normalizeContext(payload.context);
   const strengths = Array.isArray(safeProfile.strengths) ? safeProfile.strengths : [];
   const weaknesses = Array.isArray(safeProfile.weaknesses) ? safeProfile.weaknesses : [];
   const skills = Array.isArray(safeProfile.skills) ? safeProfile.skills : [];
@@ -1046,12 +1054,12 @@ function ensureCareerProfileFields(profile, payload = {}, resumeText = "") {
   ].filter(Boolean).slice(0, 8);
 
   safeProfile.basic = safeProfile.basic && typeof safeProfile.basic === "object" ? safeProfile.basic : {};
-  safeProfile.basic.age ||= normalizeText(payload.age);
-  safeProfile.basic.region ||= normalizeText(payload.region);
-  safeProfile.basic.targetGoal ||= normalizeText(payload.targetGoal);
-  safeProfile.basic.currentThought ||= normalizeText(payload.currentThought);
-  safeProfile.basic.targetDirection ||= normalizeText(payload.targetDirection);
-  safeProfile.basic.anxiety ||= normalizeText(payload.anxiety);
+  safeProfile.basic.age ||= context.age;
+  safeProfile.basic.region ||= context.region;
+  safeProfile.basic.targetGoal ||= context.targetGoal;
+  safeProfile.basic.currentThought ||= context.currentThought;
+  safeProfile.basic.targetDirection ||= context.targetDirection;
+  safeProfile.basic.anxiety ||= context.anxiety;
   safeProfile.experienceSummary = experiences;
   safeProfile.skills = skills;
   safeProfile.strengths = strengths;
@@ -1093,6 +1101,30 @@ function ensureCareerProfileFields(profile, payload = {}, resumeText = "") {
 
 function isGenericRouteTitle(title) {
   return /^(高薪潜力方向|最快可尝试方向|低阻力过渡方向|平衡成长方向|信息不足|方向|岗位方向|职业方向)$/i.test(String(title || "").trim());
+}
+
+const possibilityCuePattern = /(证据|作品|作品集|表达|简历|重构|补强|验证|转译|迁移|组合|试投|复盘|材料|叙事|桥接)/;
+
+function isRouteLikeTitle(title) {
+  const text = String(title || "").trim();
+  if (!text) return false;
+  if (/(岗位|方向|路线|路径|职业|工作|运营|分析|策略|合规|公关|舆情|产品|增长|数据|留学)/.test(text)) return true;
+  if (/场景/.test(text) && !possibilityCuePattern.test(text)) return true;
+  if (/能力/.test(text) && !/(迁移|转译|组合|补强|表达)/.test(text)) return true;
+  return false;
+}
+
+function isDistinctPossibilityTitle(title, routeTitles = []) {
+  const text = normalizeDirectionTitle(title);
+  if (!text || isGenericRouteTitle(text) || isRouteLikeTitle(text)) return false;
+  const routeItems = routeTitles.map(normalizeDirectionTitle).filter(Boolean);
+  if (routeItems.some((item) => item === text || item.includes(text) || text.includes(item))) return false;
+  const titleAnchors = extractDirectionAnchors(text);
+  if (!titleAnchors.length) return true;
+  return !routeItems.some((item) => {
+    const routeAnchors = extractDirectionAnchors(item);
+    return routeAnchors.some((anchor) => titleAnchors.includes(anchor));
+  });
 }
 
 function getOverviewQualityIssues(report) {
@@ -1452,6 +1484,37 @@ function buildOverviewFallbackParts(careerProfile) {
     coreAbility,
     score,
   };
+}
+
+function buildNewPossibilityFallbacks(parts) {
+  const {
+    coreAbility,
+    evidenceText,
+    expressionGap,
+    missing,
+    topExperience,
+  } = parts;
+  const sourceEvidence = pickUsefulText(
+    [evidenceText, topExperience?.evidence, topExperience?.title],
+    "已有经历可以继续提炼成可展示证据。"
+  );
+  return [
+    {
+      title: "作品集证据化",
+      reason: `${sourceEvidence}。把这类经历整理成可展示的证据，会比继续空想方向更有效。`,
+      firstTry: "先选 1 个代表项目，写成问题、动作、结果三段。",
+    },
+    {
+      title: "简历表达重构",
+      reason: `${coreAbility} 还可以被翻译得更清楚，避免招聘方只看到经历看不到能力。`,
+      firstTry: "把简历里最重要的 1 个经历改成“目标-判断-动作-结果”。",
+    },
+    {
+      title: "证据补强验证",
+      reason: missing.length ? `先补 ${missing[0]}，能更快校准判断。` : expressionGap,
+      firstTry: "找一个能被验证的材料补上：截图、数据、复盘或作品链接。",
+    },
+  ];
 }
 
 function ensureOverviewFields(report, careerProfile) {
@@ -2067,10 +2130,14 @@ async function handleAnalyzeResume(req, res) {
       };
       report.careerProfile = careerProfile;
       report.extractedResumeText = resumeText;
-      const savedEntry = trySaveHistoryForRequest(req, report, careerProfile, resumeText);
-      if (savedEntry) {
+      const historyResult = trySaveHistoryForRequest(req, report, careerProfile, resumeText);
+      if (historyResult?.entry) {
         report.meta.historySaved = true;
-        report.meta.historyId = savedEntry.id;
+        report.meta.historyId = historyResult.entry.id;
+      }
+      if (historyResult?.error) {
+        report.meta.historySaved = false;
+        report.meta.historySaveError = historyResult.error;
       }
       sendJson(res, 200, report);
     } catch (error) {
@@ -2198,10 +2265,14 @@ async function handleCreateOverview(req, res) {
       };
       report.careerProfile = payload.careerProfile;
       report.extractedResumeText = normalizeText(payload.extractedResumeText);
-      const savedEntry = trySaveHistoryForRequest(req, report, payload.careerProfile, payload.extractedResumeText);
-      if (savedEntry) {
+      const historyResult = trySaveHistoryForRequest(req, report, payload.careerProfile, payload.extractedResumeText);
+      if (historyResult?.entry) {
         report.meta.historySaved = true;
-        report.meta.historyId = savedEntry.id;
+        report.meta.historyId = historyResult.entry.id;
+      }
+      if (historyResult?.error) {
+        report.meta.historySaved = false;
+        report.meta.historySaveError = historyResult.error;
       }
       sendJson(res, 200, report);
     } catch (error) {

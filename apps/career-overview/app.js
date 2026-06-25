@@ -546,20 +546,18 @@ async function analyze() {
     }
     showToast("分析已生成");
   } catch (error) {
-    if (error.data?.code === "overview_quality_failed" && error.data?.partial?.careerProfile) {
-      state.careerProfile = error.data.partial.careerProfile;
-      state.extractedResumeText = error.data.partial.extractedResumeText || payload.resumeText;
+    const partialCareerProfile = error.data?.partial?.careerProfile || state.careerProfile;
+    const partialResumeText = error.data?.partial?.extractedResumeText || state.extractedResumeText || payload.resumeText;
+    if (partialCareerProfile) {
+      state.careerProfile = partialCareerProfile;
+      state.extractedResumeText = partialResumeText;
+      state.report = null;
       persistAnalysis({
         isPartial: true,
         error: error.message,
+        source: error.data?.code || "overview_partial_failure",
       });
       showPartialState(error.message);
-    } else if (error.data?.partial?.careerProfile && state.careerProfile) {
-      persistAnalysis({
-        isPartial: true,
-        error: error.message,
-      });
-      showErrorState(error.message);
     } else {
       showErrorState(error.message);
     }
@@ -1017,14 +1015,16 @@ function exportJson() {
   URL.revokeObjectURL(url);
 }
 
-function persistAnalysis() {
+function persistAnalysis(options = {}) {
   if (!state.careerProfile) return;
   localStorage.setItem(analysisStorageKey, JSON.stringify({
     careerProfile: state.careerProfile,
     overviewReport: state.report || null,
     extractedResumeText: state.extractedResumeText,
     savedAt: new Date().toISOString(),
-    isPartial: !state.report,
+    isPartial: options.isPartial ?? !state.report,
+    error: options.error || "",
+    source: options.source || "",
   }));
 }
 
