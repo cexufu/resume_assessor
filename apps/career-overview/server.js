@@ -376,7 +376,8 @@ const overviewJsonContract = [
   "routeCards：4 项，每项字段 label, title, why, risk, nextStep。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径，不允许写“高薪潜力方向”“最快可尝试方向”“低阻力过渡方向”“平衡成长方向”这类占位词。",
   "routeCards 每项都必须基于 career_profile 的证据，why/risk/nextStep 必须具体到岗位场景、证据缺口或 7 天动作。",
   "suitableDirections：3 项，每项字段 title, explanation。title 必须是具体岗位方向或职业场景；3 条 explanation 必须分别说明不同岗位的适配原因、使用能力和下一步验证动作，不允许套同一句模板只改序号。",
-  "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性；必须基于证据或明确写出验证前提。",
+  "newPossibilities：1-2 项，每项字段 title, reason, firstTry。用于让用户看到原路径之外的可能性；必须是“证据化、转译、验证、补强、组合”这类可能性，不允许写成另一条岗位路线。",
+  "newPossibilities 的 title 不能包含 岗位、方向、路线、路径、职业、场景、工作、运营、分析、策略、合规、公关、舆情 这类明显岗位词，也不能和 routeCards 的标题同类。",
   "shortcomings：字段 summary, items。items 最多 3 条；每条必须是具体短板或具体缺失信息。",
   "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice；必须给出下一步补齐建议，不能空泛。",
   "comfortIntro：开篇安慰总起，1-2 句，必须具体、不空泛。",
@@ -893,6 +894,18 @@ function isGenericRouteTitle(title) {
   return /^(高薪潜力方向|最快可尝试方向|低阻力过渡方向|平衡成长方向|信息不足|方向|岗位方向|职业方向)$/i.test(String(title || "").trim());
 }
 
+function isRouteLikeTitle(title) {
+  const text = String(title || "").trim();
+  if (!text) return false;
+  return /(岗位|方向|路线|路径|职业|场景|工作|运营|分析|策略|合规|公关|舆情|增长|产品|数据|留学|能力)/.test(text);
+}
+
+function isDistinctPossibilityTitle(title, routeTitles = []) {
+  const text = String(title || "").trim();
+  if (!text || isGenericRouteTitle(text) || isRouteLikeTitle(text)) return false;
+  return !routeTitles.some((item) => normalizeDirectionTitle(item) === text);
+}
+
 function getOverviewQualityIssues(report) {
   const diagnosis = report?.capabilityDiagnosis || {};
   const routes = Array.isArray(report?.routeCards) ? report.routeCards : [];
@@ -1147,6 +1160,34 @@ function buildOverviewFallbackParts(careerProfile) {
   };
 }
 
+function buildNewPossibilityFallbacks(parts) {
+  const {
+    coreAbility,
+    evidenceText,
+    expressionGap,
+    missing,
+    topExperience,
+  } = parts;
+  const sourceEvidence = pickUsefulText([evidenceText, topExperience?.evidence, topExperience?.title], "已有经历可以继续提炼成可展示证据。");
+  return [
+    {
+      title: "作品集证据化",
+      reason: `${sourceEvidence}。把这类经历整理成可展示的证据，会比继续空想方向更有效。`,
+      firstTry: "先选 1 个代表项目，写成问题、动作、结果三段。",
+    },
+    {
+      title: "简历表达重构",
+      reason: `${coreAbility} 还可以被翻译得更清楚，避免招聘方只看到经历看不到能力。`,
+      firstTry: "把简历里最重要的 1 个经历改成“目标-判断-动作-结果”。",
+    },
+    {
+      title: "证据补强验证",
+      reason: missing.length ? `先补 ${missing[0]}，能更快校准判断。` : expressionGap,
+      firstTry: "找一个能被验证的材料补上：截图、数据、复盘或作品链接。",
+    },
+  ];
+}
+
 function ensureOverviewFields(report, careerProfile) {
   const safeReport = report && typeof report === "object" ? report : {};
   const parts = buildOverviewFallbackParts(careerProfile);
@@ -1298,13 +1339,19 @@ function ensureOverviewFields(report, careerProfile) {
   }
 
   const sourcePossibilities = Array.isArray(safeReport.newPossibilities) ? safeReport.newPossibilities.slice(0, 4) : [];
+  const routeTitles = (safeReport.routeCards || []).map((item) => item?.title).filter(Boolean);
   safeReport.newPossibilities = sourcePossibilities
     .map((item) => (item && typeof item === "object" ? item : {}))
     .filter((item) => {
       if (!isUsefulTextValue(item.title) || !isUsefulTextValue(item.reason || item.firstTry)) return false;
-      return hasDirectionSupport(item.title, careerProfile) || extractDirectionAnchors(item.title).length === 0;
+      return isDistinctPossibilityTitle(item.title, routeTitles);
     })
     .slice(0, 2);
+  if (!safeReport.newPossibilities.length) {
+    safeReport.newPossibilities = buildNewPossibilityFallbacks(parts)
+      .filter((item) => isDistinctPossibilityTitle(item.title, routeTitles))
+      .slice(0, 2);
+  }
 
   const shortcomings = ensureObjectField(safeReport, "shortcomings");
   setTextIfMissing(safeReport, shortcomings, "summary", "当前最大短板不是经历少，而是经历和能力之间的证据链还不够清楚。", "shortcomings.summary");
