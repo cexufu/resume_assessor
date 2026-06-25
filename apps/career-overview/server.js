@@ -37,6 +37,12 @@ const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepsee
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 120000);
 const OVERVIEW_TIMEOUT_MS = Number(process.env.OVERVIEW_TIMEOUT_MS || 22000);
 const OVERVIEW_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_REPAIR_TIMEOUT_MS || 6000);
+const OVERVIEW_DIAGNOSIS_TIMEOUT_MS = Number(process.env.OVERVIEW_DIAGNOSIS_TIMEOUT_MS || 14000);
+const OVERVIEW_PATH_TIMEOUT_MS = Number(process.env.OVERVIEW_PATH_TIMEOUT_MS || 14000);
+const OVERVIEW_DIAGNOSIS_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_DIAGNOSIS_REPAIR_TIMEOUT_MS || 5000);
+const OVERVIEW_PATH_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_PATH_REPAIR_TIMEOUT_MS || 5000);
+const OVERVIEW_DIAGNOSIS_MAX_TOKENS = Number(process.env.OVERVIEW_DIAGNOSIS_MAX_TOKENS || 760);
+const OVERVIEW_PATH_MAX_TOKENS = Number(process.env.OVERVIEW_PATH_MAX_TOKENS || 860);
 const PROFILE_MAX_TOKENS = Number(process.env.PROFILE_MAX_TOKENS || 1100);
 const OVERVIEW_MAX_TOKENS = Number(process.env.OVERVIEW_MAX_TOKENS || 1300);
 const MODULE_MAX_TOKENS = Number(process.env.MODULE_MAX_TOKENS || 1900);
@@ -436,6 +442,134 @@ const compactOverviewJsonContract = [
   "moduleRecommendations 必须 3 项，每项字段：module, reason, suggestedQuestion。module 只能是 career, study, ability。",
   "只返回合法 JSON。",
 ].join("\n");
+
+const overviewDiagnosisSystemPrompt = [
+  "你是职业总览的诊断层分析器。",
+  "你只负责把 career_profile 压缩成简洁、个性化的诊断，不输出职业路线。",
+  "语气要专业、克制、具体，不做空泛鼓励。",
+  careerJudgmentPrinciples,
+  jsonOnlyContract,
+].join("\n");
+
+const overviewDiagnosisJsonContract = [
+  "JSON 顶层字段必须为：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, shortcomings, improvementAdvice, closingEncouragement, followUpQuestions。",
+  "不要输出 routeCards、suitableDirections、newPossibilities、moduleRecommendations。",
+  "identitySnapshot：字段 who, destination, stage。每项不超过 60 个中文字符。",
+  "capabilityDiagnosis：字段 coreAbility, evidence, expressionGap, nextProof。必须引用 career_profile 的具体项目或事实。",
+  "peerScore：字段 score, explanation。score 为 0-10；说明为什么是这个分数。",
+  "abilityFields：3 项，每项字段 name, currentEvidence, usableScenes。每项要和简历证据对应。",
+  "perspectiveUpgrade：字段 currentLayer, nextLayer, example。要说明当前更偏执行/战术/战略哪一层。",
+  "shortcomings：字段 summary, items。items 最多 3 条。",
+  "improvementAdvice：字段 mostNeededAbility, missingExperience, shortAdvice。",
+  "comfortIntro：1-2 句。",
+  "closingEncouragement：1 句。",
+  "followUpQuestions：2-3 条，短句。",
+  "所有文本尽量简短，不要重复。",
+].join("\n");
+
+const compactOverviewDiagnosisJsonContract = [
+  "JSON 顶层字段必须为：identitySnapshot, comfortIntro, capabilityDiagnosis, peerScore, abilityFields, perspectiveUpgrade, shortcomings, improvementAdvice, closingEncouragement, followUpQuestions。",
+  "短版诊断层，但结构必须完整。",
+  "每个文本字段不超过 45 个中文字符。",
+  "不要输出路线或可能性类字段。",
+].join("\n");
+
+const overviewPathSystemPrompt = [
+  "你是职业总览的路径层分析器。",
+  "你只负责路线、适合方向和新可能性，不输出诊断层。",
+  "优先从库候选项里挑选，再结合 career_profile 改写。",
+  "必须具体，不能把岗位写空。",
+  careerJudgmentPrinciples,
+  jsonOnlyContract,
+].join("\n");
+
+const overviewPathJsonContract = [
+  "JSON 顶层字段必须为：routeCards, suitableDirections, newPossibilities。",
+  "不要输出 identitySnapshot、capabilityDiagnosis、peerScore、abilityFields、perspectiveUpgrade、shortcomings、improvementAdvice、closingEncouragement、moduleRecommendations。",
+  "routeCards：至少 2 项，最多 4 项。label 固定为：最高薪路线、最快上岸路线、最轻松路线、均衡路线。title 必须是具体岗位/路径。",
+  "routeCards 每项都必须基于 career_profile 或库候选项，why/risk/nextStep 必须具体。",
+  "suitableDirections：至少 2 项，最多 3 项。title 必须是具体岗位方向或职业场景。",
+  "newPossibilities：至少 2 项，最多 3 项。title 必须是“证据化、转译、验证、补强、组合、作品集、迁移”这类可能性，不允许写成另一条岗位路线。",
+  "newPossibilities 的 title 不能包含 岗位、方向、路线、路径、职业、场景、工作、运营、分析、策略、合规、公关、舆情、产品 这类明显岗位词，也不能和 routeCards 的标题同类。",
+  "不要输出泛泛词，不要重复同义标题。",
+].join("\n");
+
+const compactOverviewPathJsonContract = [
+  "JSON 顶层字段必须为：routeCards, suitableDirections, newPossibilities。",
+  "短版路径层，但结构必须完整。",
+  "routeCards 至少 2 项，最多 4 项。",
+  "suitableDirections 至少 2 项，最多 3 项。",
+  "newPossibilities 至少 2 项，最多 3 项。",
+  "title 必须具体，且 newPossibilities 不能和 routeCards 同类。",
+].join("\n");
+
+function buildOverviewLayerLibraryContext(careerProfile) {
+  return {
+    careerRoutes: buildCatalogRouteCards(careerProfile, 6).map((item) => ({
+      title: item?.title || "",
+      label: item?.label || "",
+      tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+      summary: item?.summary || item?.why || "",
+    })),
+    possibilityPatterns: buildCatalogPossibilities(careerProfile, 5).map((item) => ({
+      title: item?.title || "",
+      reason: item?.reason || "",
+      firstTry: item?.firstTry || "",
+    })),
+  };
+}
+
+function buildOverviewDiagnosisPrompt(careerProfile, previousError = "") {
+  return [
+    "请只生成首页总览的【诊断层】JSON，不要输出路线层内容。",
+    "这一层只负责身份、能力、评分、短板和建议。",
+    previousError ? `上一轮错误摘要：${normalizeText(previousError, 220)}` : "",
+    "",
+    "career_profile：",
+    stringifyCompact(careerProfile),
+  ].filter(Boolean).join("\n");
+}
+
+function buildCompactOverviewDiagnosisPrompt(careerProfile, previousError = "") {
+  return [
+    "诊断层短版重试。",
+    "只输出诊断层 JSON，不要输出路线层。",
+    previousError ? `上一轮错误摘要：${normalizeText(previousError, 220)}` : "",
+    "",
+    "career_profile：",
+    stringifyCompact(careerProfile),
+  ].filter(Boolean).join("\n");
+}
+
+function buildOverviewPathPrompt(careerProfile, previousError = "") {
+  return [
+    "请只生成首页总览的【路径层】JSON，不要输出诊断层内容。",
+    "这一层只负责路线、适合方向和新可能性。",
+    "优先从库候选项里挑选，再结合 career_profile 改写。",
+    previousError ? `上一轮错误摘要：${normalizeText(previousError, 220)}` : "",
+    "",
+    "career_profile：",
+    stringifyCompact(careerProfile),
+    "",
+    "库候选项：",
+    JSON.stringify(buildOverviewLayerLibraryContext(careerProfile), null, 2),
+  ].filter(Boolean).join("\n");
+}
+
+function buildCompactOverviewPathPrompt(careerProfile, previousError = "") {
+  return [
+    "路径层短版重试。",
+    "只输出路径层 JSON，不要输出诊断层。",
+    "路线至少 2 条，新可能性至少 2 条。",
+    previousError ? `上一轮错误摘要：${normalizeText(previousError, 220)}` : "",
+    "",
+    "career_profile：",
+    stringifyCompact(careerProfile),
+    "",
+    "库候选项：",
+    JSON.stringify(buildOverviewLayerLibraryContext(careerProfile), null, 2),
+  ].filter(Boolean).join("\n");
+}
 
 const moduleSystemPrompts = {
   career: [
@@ -1613,45 +1747,124 @@ function ensureModuleFields(moduleType, report, careerProfile, moduleInput) {
   return safeReport;
 }
 
-async function createOverviewReport(careerProfile) {
-  try {
-    const report = await callDeepSeekJsonWithTimeout(buildJsonCompletionBody({
-      systemPrompt: overviewSystemPrompt,
-      contract: overviewJsonContract,
-      userPrompt: buildOverviewPrompt(careerProfile),
-      maxTokens: OVERVIEW_MAX_TOKENS,
+function getOverviewLayerConfig(layerType) {
+  if (layerType === "paths") {
+    return {
+      systemPrompt: overviewPathSystemPrompt,
+      contract: overviewPathJsonContract,
+      compactContract: compactOverviewPathJsonContract,
+      buildPrompt: buildOverviewPathPrompt,
+      buildCompactPrompt: buildCompactOverviewPathPrompt,
+      maxTokens: OVERVIEW_PATH_MAX_TOKENS,
+      compactMaxTokens: Math.min(OVERVIEW_PATH_MAX_TOKENS, 700),
+      timeoutMs: OVERVIEW_PATH_TIMEOUT_MS,
+      repairTimeoutMs: OVERVIEW_PATH_REPAIR_TIMEOUT_MS,
       temperature: 0.2,
-    }), OVERVIEW_TIMEOUT_MS, OVERVIEW_REPAIR_TIMEOUT_MS);
-    const safeReport = ensureOverviewFields(report, careerProfile);
-    return attachOverviewQualityMeta(safeReport);
-  } catch (error) {
+      compactTemperature: 0.1,
+    };
+  }
+
+  return {
+    systemPrompt: overviewDiagnosisSystemPrompt,
+    contract: overviewDiagnosisJsonContract,
+    compactContract: compactOverviewDiagnosisJsonContract,
+    buildPrompt: buildOverviewDiagnosisPrompt,
+    buildCompactPrompt: buildCompactOverviewDiagnosisPrompt,
+    maxTokens: OVERVIEW_DIAGNOSIS_MAX_TOKENS,
+    compactMaxTokens: Math.min(OVERVIEW_DIAGNOSIS_MAX_TOKENS, 640),
+    timeoutMs: OVERVIEW_DIAGNOSIS_TIMEOUT_MS,
+    repairTimeoutMs: OVERVIEW_DIAGNOSIS_REPAIR_TIMEOUT_MS,
+    temperature: 0.15,
+    compactTemperature: 0.08,
+  };
+}
+
+async function runOverviewLayer(layerType, careerProfile) {
+  const config = getOverviewLayerConfig(layerType);
+  const primaryBody = buildJsonCompletionBody({
+    systemPrompt: config.systemPrompt,
+    contract: config.contract,
+    userPrompt: config.buildPrompt(careerProfile),
+    maxTokens: config.maxTokens,
+    temperature: config.temperature,
+  });
+
+  try {
+    const report = await callDeepSeekJsonWithTimeout(primaryBody, config.timeoutMs, config.repairTimeoutMs);
+    return { report, meta: { layer: layerType, retryMode: "primary", ok: true } };
+  } catch (primaryError) {
     try {
-      const compactReport = await callDeepSeekJsonWithTimeout(buildJsonCompletionBody({
-        systemPrompt: overviewSystemPrompt,
-        contract: compactOverviewJsonContract,
-        userPrompt: buildCompactOverviewPrompt(careerProfile, error.message),
-        maxTokens: Math.min(OVERVIEW_MAX_TOKENS, 1200),
-        temperature: 0.1,
-      }), Math.min(OVERVIEW_TIMEOUT_MS, 15000), Math.min(OVERVIEW_REPAIR_TIMEOUT_MS, 5000));
-      const report = ensureOverviewFields(compactReport, careerProfile);
-      report.meta = {
-        ...(report.meta || {}),
-        compactOverviewRetry: true,
-        primaryOverviewError: error.message,
+      const compactBody = buildJsonCompletionBody({
+        systemPrompt: config.systemPrompt,
+        contract: config.compactContract,
+        userPrompt: config.buildCompactPrompt(careerProfile, primaryError.message),
+        maxTokens: config.compactMaxTokens,
+        temperature: config.compactTemperature,
+      });
+      const report = await callDeepSeekJsonWithTimeout(
+        compactBody,
+        Math.min(config.timeoutMs, 12000),
+        Math.min(config.repairTimeoutMs, 4000)
+      );
+      return {
+        report,
+        meta: {
+          layer: layerType,
+          retryMode: "compact",
+          ok: true,
+          primaryError: primaryError.message,
+        },
       };
-      return attachOverviewQualityMeta(report);
     } catch (compactError) {
-      const report = ensureOverviewFields({}, careerProfile);
-      report.meta = {
-        ...(report.meta || {}),
-        deterministicOverviewFallback: true,
-        compactOverviewRetry: true,
-        primaryOverviewError: error.message,
-        compactOverviewError: compactError.message,
+      return {
+        report: {},
+        meta: {
+          layer: layerType,
+          retryMode: "fallback",
+          ok: false,
+          primaryError: primaryError.message,
+          compactError: compactError.message,
+        },
       };
-      return attachOverviewQualityMeta(report);
     }
   }
+}
+
+async function createOverviewReport(careerProfile) {
+  const [diagnosisLayer, pathLayer] = await Promise.all([
+    runOverviewLayer("diagnosis", careerProfile),
+    runOverviewLayer("paths", careerProfile),
+  ]);
+
+  const mergedReport = {
+    ...(diagnosisLayer.report || {}),
+    ...(pathLayer.report || {}),
+    meta: {
+      ...(diagnosisLayer.report?.meta || {}),
+      ...(pathLayer.report?.meta || {}),
+      layeredOverview: true,
+      overviewLayers: {
+        diagnosis: diagnosisLayer.meta,
+        paths: pathLayer.meta,
+      },
+    },
+  };
+
+  const safeReport = ensureOverviewFields(mergedReport, careerProfile);
+  safeReport.meta = {
+    ...(safeReport.meta || {}),
+    layeredOverview: true,
+    overviewLayers: {
+      diagnosis: diagnosisLayer.meta,
+      paths: pathLayer.meta,
+    },
+    overviewRetryModes: {
+      diagnosis: diagnosisLayer.meta?.retryMode || "primary",
+      paths: pathLayer.meta?.retryMode || "primary",
+    },
+    layeredOverviewFailed: Boolean((diagnosisLayer.meta && !diagnosisLayer.meta.ok) && (pathLayer.meta && !pathLayer.meta.ok)),
+  };
+  return attachOverviewQualityMeta(safeReport);
 }
 
 async function createModuleReport(moduleType, careerProfile, moduleInput) {
