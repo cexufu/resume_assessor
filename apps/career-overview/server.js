@@ -39,10 +39,13 @@ const OVERVIEW_TIMEOUT_MS = Number(process.env.OVERVIEW_TIMEOUT_MS || 22000);
 const OVERVIEW_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_REPAIR_TIMEOUT_MS || 6000);
 const OVERVIEW_DIAGNOSIS_TIMEOUT_MS = Number(process.env.OVERVIEW_DIAGNOSIS_TIMEOUT_MS || 14000);
 const OVERVIEW_PATH_TIMEOUT_MS = Number(process.env.OVERVIEW_PATH_TIMEOUT_MS || 14000);
+const DIRECTION_HYPOTHESIS_TIMEOUT_MS = Number(process.env.DIRECTION_HYPOTHESIS_TIMEOUT_MS || 28000);
 const OVERVIEW_DIAGNOSIS_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_DIAGNOSIS_REPAIR_TIMEOUT_MS || 5000);
 const OVERVIEW_PATH_REPAIR_TIMEOUT_MS = Number(process.env.OVERVIEW_PATH_REPAIR_TIMEOUT_MS || 5000);
+const DIRECTION_HYPOTHESIS_REPAIR_TIMEOUT_MS = Number(process.env.DIRECTION_HYPOTHESIS_REPAIR_TIMEOUT_MS || 7000);
 const OVERVIEW_DIAGNOSIS_MAX_TOKENS = Number(process.env.OVERVIEW_DIAGNOSIS_MAX_TOKENS || 760);
 const OVERVIEW_PATH_MAX_TOKENS = Number(process.env.OVERVIEW_PATH_MAX_TOKENS || 860);
+const DIRECTION_HYPOTHESIS_MAX_TOKENS = Number(process.env.DIRECTION_HYPOTHESIS_MAX_TOKENS || 1600);
 const PROFILE_MAX_TOKENS = Number(process.env.PROFILE_MAX_TOKENS || 1100);
 const OVERVIEW_MAX_TOKENS = Number(process.env.OVERVIEW_MAX_TOKENS || 1300);
 const MODULE_MAX_TOKENS = Number(process.env.MODULE_MAX_TOKENS || 1900);
@@ -51,6 +54,7 @@ const JSON_REPAIR_MAX_TOKENS = Number(process.env.JSON_REPAIR_MAX_TOKENS || 1200
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 12_000_000);
 const MAX_RESUME_TEXT_CHARS = Number(process.env.MAX_RESUME_TEXT_CHARS || 12_000);
 const MAX_PROFILE_RESUME_TEXT_CHARS = Number(process.env.MAX_PROFILE_RESUME_TEXT_CHARS || 8_000);
+const MAX_HYPOTHESIS_RESUME_TEXT_CHARS = Number(process.env.MAX_HYPOTHESIS_RESUME_TEXT_CHARS || MAX_RESUME_TEXT_CHARS);
 const MAX_PROFILE_JSON_CHARS = Number(process.env.MAX_PROFILE_JSON_CHARS || 3_500);
 const MAX_MODULE_INPUT_CHARS = Number(process.env.MAX_MODULE_INPUT_CHARS || 1_000);
 const MAX_FILE_BYTES = Number(process.env.MAX_FILE_BYTES || 6_000_000);
@@ -59,6 +63,9 @@ const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 30 * 24 * 60 * 60 * 
 const HISTORY_LIMIT_PER_USER = Number(process.env.HISTORY_LIMIT_PER_USER || 20);
 const PASSWORD_MIN_LENGTH = Number(process.env.PASSWORD_MIN_LENGTH || 8);
 const COOKIE_SECURE = String(process.env.COOKIE_SECURE || "").trim() === "true";
+const DEEPSEEK_THINKING_TYPE = String(process.env.DEEPSEEK_THINKING_TYPE || "enabled").trim() === "disabled"
+  ? "disabled"
+  : "enabled";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -88,6 +95,10 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function buildThinkingConfig(mode = DEEPSEEK_THINKING_TYPE) {
+  return { type: mode === "disabled" ? "disabled" : "enabled" };
+}
+
 function loadAuthStore() {
   if (authStoreCache) return authStoreCache;
   ensureDirSync(DATA_DIR);
@@ -111,7 +122,9 @@ function loadAuthStore() {
 
 function defaultCareerLibrary() {
   return {
-    version: 1,
+    version: 2,
+    rankingOrder: ["frontierScore", "salaryScore", "degreeScore", "scarcityScore"],
+    meta: {},
     careerRoutes: [],
     studyDirections: [],
     possibilityPatterns: [],
@@ -129,7 +142,9 @@ function loadCareerLibrary() {
     const raw = fs.readFileSync(CAREER_LIBRARY_FILE, "utf8");
     const parsed = raw.trim() ? JSON.parse(raw) : defaultCareerLibrary();
     careerLibraryCache = {
-      version: 1,
+      version: Number(parsed.version) || 2,
+      rankingOrder: Array.isArray(parsed.rankingOrder) ? parsed.rankingOrder : ["frontierScore", "salaryScore", "degreeScore", "scarcityScore"],
+      meta: parsed.meta && typeof parsed.meta === "object" ? parsed.meta : {},
       careerRoutes: Array.isArray(parsed.careerRoutes) ? parsed.careerRoutes : [],
       studyDirections: Array.isArray(parsed.studyDirections) ? parsed.studyDirections : [],
       possibilityPatterns: Array.isArray(parsed.possibilityPatterns) ? parsed.possibilityPatterns : [],
@@ -567,13 +582,13 @@ function buildOverviewPathJsonContract(goalMode = "career") {
   return [
     "JSON 顶层字段必须为：routeCards, suitableDirections, newPossibilities。",
     "不要输出 identitySnapshot、capabilityDiagnosis、peerScore、abilityFields、perspectiveUpgrade、shortcomings、improvementAdvice、closingEncouragement、moduleRecommendations。",
-    `suitableDirections：至少 2 项，最多 3 项。每项字段：title, verdict, whatItIs, whyYou, futureValue。title 必须是具体${copy.directionPromptNoun}。`,
+    `suitableDirections：至少 2 项，最多 3 项。每项字段：title, verdict, whatItIs, whyYou, futureValue。title 必须是具体${copy.directionPromptNoun}，不能只写泛大类。`,
     `routeCards：至少 2 项，最多 4 项。每项字段：label, title, verdict, whatItIs, whyYou, futureValue。label 优先使用：${copy.routeLabels.join("、")}。title 必须是具体${copy.routeObject}。`,
-    `newPossibilities：至少 2 项，最多 3 项。每项字段：title, verdict, whatItIs, whyYou, futureValue。title 必须是另一个具体${copy.directionPromptNoun}。`,
+    `newPossibilities：至少 2 项，最多 3 项。每项字段：title, verdict, whatItIs, whyYou, futureValue。title 必须是另一个具体${copy.directionPromptNoun}，而不是“补证据”“改简历”这种动作项。`,
     "verdict 只能是 1-3 个字的判断词，例如：对口、可转、潜力、高薪、稳妥、跨界。",
     "whatItIs 用一句话解释这个方向主要做什么或研究什么。",
     "whyYou 用一句话解释为什么用户现有能力和经历能支撑它。",
-    "futureValue 用一句话解释它为什么值得考虑，例如薪资、发展前景、行业机会或出口清晰度。",
+    "futureValue 用一句话解释它为什么值得考虑，例如 AI 契合度、行业机会、薪资上限、出口清晰度或长期成长性。",
     "全都要短，不要写风险、下一步、套话，不要重复同义句。",
   ].join("\n");
 }
@@ -583,9 +598,9 @@ function buildCompactOverviewPathJsonContract(goalMode = "career") {
   return [
     "JSON 顶层字段必须为：routeCards, suitableDirections, newPossibilities。",
     "短版路径层，但结构必须完整。",
-    `suitableDirections 至少 2 项，最多 3 项，字段必须是 title, verdict, whatItIs, whyYou, futureValue。`,
+    `suitableDirections 至少 2 项，最多 3 项，字段必须是 title, verdict, whatItIs, whyYou, futureValue，title 不能是泛大类。`,
     `routeCards 至少 2 项，最多 4 项，字段必须是 label, title, verdict, whatItIs, whyYou, futureValue。`,
-    `newPossibilities 至少 2 项，最多 3 项，字段必须是 title, verdict, whatItIs, whyYou, futureValue。`,
+    `newPossibilities 至少 2 项，最多 3 项，字段必须是 title, verdict, whatItIs, whyYou, futureValue，必须是方向，不是动作建议。`,
   ].join("\n");
 }
 
@@ -597,17 +612,73 @@ function rankGoalLibraryItems(careerProfile, goalMode = "career", limit = 6) {
   return rankLibraryItems(getGoalLibraryItems(goalMode), profileTexts(careerProfile), limit);
 }
 
-function buildOverviewLayerLibraryContext(careerProfile, goalMode = "career") {
-  const rankedRoutes = rankGoalLibraryItems(careerProfile, goalMode, 6);
+function hypothesisTexts(hypotheses = {}) {
+  const blocks = [
+    ...(Array.isArray(hypotheses?.suitableDirections) ? hypotheses.suitableDirections : []),
+    ...(Array.isArray(hypotheses?.routeCards) ? hypotheses.routeCards : []),
+    ...(Array.isArray(hypotheses?.newPossibilities) ? hypotheses.newPossibilities : []),
+  ];
+  return blocks.map((item) => [
+    item?.label,
+    item?.title,
+    item?.whatItIs,
+    item?.whyYou,
+    item?.futureValue,
+    item?.evidence,
+  ].filter(Boolean).join(" ")).join(" ");
+}
+
+function metadataPriorityScore(item) {
+  const frontier = Number(item?.frontierScore) || 0;
+  const salary = Number(item?.salaryScore) || 0;
+  const degree = Number(item?.degreeScore) || 0;
+  const scarcity = Number(item?.scarcityScore) || 0;
+  const future = Number(item?.futurePotentialScore) || 0;
+  const ai = Number(item?.aiRelevanceScore) || 0;
+  return (frontier * 100000) + (salary * 10000) + (degree * 1000) + (scarcity * 100) + (future * 10) + ai;
+}
+
+function rankLibraryItemsWithCalibration(items, primaryHaystack, secondaryHaystack = "", limit = 6) {
+  const primary = String(primaryHaystack || "");
+  const secondary = String(secondaryHaystack || "");
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      item,
+      score: (scoreLibraryItem(item, primary) * 1000000)
+        + (scoreLibraryItem(item, secondary) * 1000)
+        + metadataPriorityScore(item),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => item)
+    .slice(0, limit);
+}
+
+function buildOverviewLayerLibraryContext(careerProfile, goalMode = "career", hypotheses = null) {
+  const primaryText = hypothesisTexts(hypotheses);
+  const secondaryText = profileTexts(careerProfile);
+  const rankedRoutes = primaryText
+    ? rankLibraryItemsWithCalibration(getGoalLibraryItems(goalMode), primaryText, secondaryText, 8)
+    : rankGoalLibraryItems(careerProfile, goalMode, 8);
   return {
     careerRoutes: rankedRoutes.map((item) => ({
       title: item?.title || "",
       label: item?.label || "",
       tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+      aliases: Array.isArray(item?.aliases) ? item.aliases.slice(0, 3) : [],
+      category: item?.category || item?.parentDiscipline || "",
+      industry: item?.industry || "",
+      frontierScore: Number(item?.frontierScore) || 0,
+      salaryScore: Number(item?.salaryScore) || 0,
+      degreeScore: Number(item?.degreeScore) || 0,
+      scarcityScore: Number(item?.scarcityScore) || 0,
+      aiRelevanceScore: Number(item?.aiRelevanceScore) || 0,
+      futurePotentialScore: Number(item?.futurePotentialScore) || 0,
+      futureValueHint: item?.futureValueHint || "",
     })),
-    possibilityPatterns: rankedRoutes.map((item) => ({
+    possibilityPatterns: rankLibraryItemsWithCalibration(loadCareerLibrary().possibilityPatterns, primaryText || secondaryText, secondaryText, 5).map((item) => ({
       title: item?.title || "",
       tags: Array.isArray(item?.tags) ? item.tags.slice(0, 4) : [],
+      reason: item?.reason || "",
     })),
   };
 }
@@ -634,8 +705,9 @@ function buildCompactOverviewDiagnosisPrompt(careerProfile, _goalMode = "career"
   ].filter(Boolean).join("\n");
 }
 
-function buildOverviewPathPrompt(careerProfile, goalMode = "career", previousError = "") {
+function buildOverviewPathPrompt(careerProfile, goalMode = "career", previousError = "", extras = {}) {
   const copy = getGoalModeCopy(goalMode);
+  const hypotheses = extras?.hypotheses || null;
   return [
     "请只生成首页总览的【路径层】JSON，不要输出诊断层内容。",
     `当前用户目标：${copy.modeLabel}。这一层只回答和这个目标直接相关的问题。`,
@@ -643,33 +715,86 @@ function buildOverviewPathPrompt(careerProfile, goalMode = "career", previousErr
     `1. suitableDirections：${copy.suitableQuestion}。`,
     `2. routeCards：${copy.routeQuestion}。`,
     `3. newPossibilities：${copy.possibilityQuestion}。`,
-    "先基于 career_profile 的经历证据做判断，再参考库候选项做命名和去重。",
+    "先基于模型对原始简历的自由判断做结论，再参考库候选项做命名、去重和未来潜力排序。",
     previousError ? `上一轮错误摘要：${normalizeText(previousError, 220)}` : "",
     "",
+    hypotheses ? "模型自由判断（优先参考，不要被库反向绑死）：" : "",
+    hypotheses ? JSON.stringify(hypotheses, null, 2) : "",
+    hypotheses ? "" : "",
     "career_profile：",
     stringifyCompact(careerProfile),
     "",
     "库候选项：",
-    JSON.stringify(buildOverviewLayerLibraryContext(careerProfile, goalMode), null, 2),
+    JSON.stringify(buildOverviewLayerLibraryContext(careerProfile, goalMode, hypotheses), null, 2),
   ].filter(Boolean).join("\n");
 }
 
-function buildCompactOverviewPathPrompt(careerProfile, goalMode = "career", previousError = "") {
+function buildCompactOverviewPathPrompt(careerProfile, goalMode = "career", previousError = "", extras = {}) {
   const copy = getGoalModeCopy(goalMode);
+  const hypotheses = extras?.hypotheses || null;
   return [
     "路径层短版重试。",
     "只输出路径层 JSON，不要输出诊断层。",
     `当前用户目标：${copy.modeLabel}。`,
     `只回答：最适合的${copy.directionObject}、最值得比较的${copy.routeObject}、以及另外两个可能方向。`,
-    "不要照抄库候选项说明，要回到 career_profile 证据。",
+    "不要照抄库候选项说明，要回到原始简历证据和模型初判。",
     previousError ? `上一轮错误摘要：${normalizeText(previousError, 220)}` : "",
     "",
+    hypotheses ? "模型自由判断：" : "",
+    hypotheses ? JSON.stringify(hypotheses, null, 2) : "",
+    hypotheses ? "" : "",
     "career_profile：",
     stringifyCompact(careerProfile),
     "",
     "库候选项：",
-    JSON.stringify(buildOverviewLayerLibraryContext(careerProfile, goalMode), null, 2),
+    JSON.stringify(buildOverviewLayerLibraryContext(careerProfile, goalMode, hypotheses), null, 2),
   ].filter(Boolean).join("\n");
+}
+
+function buildDirectionHypothesisSystemPrompt(goalMode = "career") {
+  const copy = getGoalModeCopy(goalMode);
+  return [
+    "你是首页路径层前面的方向判别器。",
+    `当前用户目标是：${copy.modeLabel}。你必须先基于原始简历全文和用户目标做自由判断，再输出具体方向。`,
+    `不要先参考方向库，不要被泛化大类绑住。优先输出足够细的具体${copy.directionPromptNoun}，例如“社交媒体传播”“整合营销传播”“消费者洞察”“民商法”“机械工程”，而不是空泛大类。`,
+    "必须先判断这个人的经历最像什么，再判断什么方向更有未来上限、AI 结合度和行业机会。",
+    "如果两个相近方向都成立，要把差别说清楚：它们分别更看重什么、这个人为什么更偏其中一个。",
+    careerJudgmentPrinciples,
+    jsonOnlyContract,
+  ].join("\n");
+}
+
+function buildDirectionHypothesisJsonContract(goalMode = "career") {
+  const copy = getGoalModeCopy(goalMode);
+  return [
+    "JSON 顶层字段必须为：suitableDirections, routeCards, newPossibilities。",
+    `suitableDirections：3 项，每项字段：title, whyYou, whatItIs, futureValue, evidence。title 必须是具体${copy.directionPromptNoun}。`,
+    `routeCards：4 项，每项字段：label, title, whyYou, whatItIs, futureValue, evidence。label 优先使用：${copy.routeLabels.join("、")}。title 必须是具体${copy.routeObject}。`,
+    `newPossibilities：2 项，每项字段：title, whyYou, whatItIs, futureValue, evidence。这里要写用户没优先想到、但未来可期的具体${copy.directionPromptNoun}。`,
+    "whyYou 必须具体引用原始简历里的经历、项目、结果或能力线索。",
+    "whatItIs 用一句话解释这个方向主要做什么或研究什么。",
+    "futureValue 用一句话解释为什么值得考虑，可以写 AI 契合度、行业机会、收入上限或职业延展性。",
+    "evidence 用一句话摘出最关键的简历证据，不要泛泛而谈。",
+    "只返回合法 JSON。",
+  ].join("\n");
+}
+
+function buildDirectionHypothesisPrompt(careerProfile, resumeText, goalMode = "career") {
+  const copy = getGoalModeCopy(goalMode);
+  return [
+    "请先做不受方向库限制的自由判断。",
+    `你要回答三个问题：1. ${copy.suitableQuestion}；2. ${copy.routeQuestion}；3. ${copy.possibilityQuestion}。`,
+    "先读原始简历全文，再参考 career_profile 压缩信息。若两者有细节差异，以原始简历证据优先。",
+    "",
+    "用户目标与基础信息：",
+    JSON.stringify(careerProfile?.basic || {}, null, 2),
+    "",
+    "原始简历全文：",
+    normalizeText(resumeText, MAX_HYPOTHESIS_RESUME_TEXT_CHARS),
+    "",
+    "career_profile：",
+    stringifyCompact(careerProfile, Math.max(MAX_PROFILE_JSON_CHARS, 5200)),
+  ].join("\n");
 }
 
 const moduleSystemPrompts = {
@@ -984,13 +1109,13 @@ function buildCompactOverviewPrompt(careerProfile, previousError = "") {
   ].filter(Boolean).join("\n");
 }
 
-function buildJsonCompletionBody({ systemPrompt, contract, userPrompt, maxTokens, temperature = 0.2 }) {
+function buildJsonCompletionBody({ systemPrompt, contract, userPrompt, maxTokens, temperature = 0.2, thinkingType = DEEPSEEK_THINKING_TYPE }) {
   return {
     model: DEEPSEEK_MODEL,
     temperature,
     max_tokens: maxTokens,
     response_format: { type: "json_object" },
-    thinking: { type: "disabled" },
+    thinking: buildThinkingConfig(thinkingType),
     messages: [
       {
         role: "system",
@@ -1106,6 +1231,49 @@ async function createCareerProfile(payload, resumeText, file) {
     temperature: 0.1,
   }));
   return ensureCareerProfileFields(profile, payload, resumeText);
+}
+
+async function createDirectionHypotheses(careerProfile, resumeText = "", goalMode = inferGoalMode(careerProfile)) {
+  const body = buildJsonCompletionBody({
+    systemPrompt: buildDirectionHypothesisSystemPrompt(goalMode),
+    contract: buildDirectionHypothesisJsonContract(goalMode),
+    userPrompt: buildDirectionHypothesisPrompt(careerProfile, resumeText, goalMode),
+    maxTokens: DIRECTION_HYPOTHESIS_MAX_TOKENS,
+    temperature: 0.25,
+    thinkingType: "enabled",
+  });
+
+  try {
+    const report = await callDeepSeekJsonWithTimeout(body, DIRECTION_HYPOTHESIS_TIMEOUT_MS, DIRECTION_HYPOTHESIS_REPAIR_TIMEOUT_MS);
+    return { report, meta: { ok: true, retryMode: "primary" } };
+  } catch (primaryError) {
+    try {
+      const compactBody = buildJsonCompletionBody({
+        systemPrompt: buildDirectionHypothesisSystemPrompt(goalMode),
+        contract: buildDirectionHypothesisJsonContract(goalMode),
+        userPrompt: buildDirectionHypothesisPrompt(careerProfile, normalizeText(resumeText, Math.min(MAX_HYPOTHESIS_RESUME_TEXT_CHARS, 7000)), goalMode),
+        maxTokens: Math.min(DIRECTION_HYPOTHESIS_MAX_TOKENS, 1200),
+        temperature: 0.18,
+        thinkingType: "enabled",
+      });
+      const report = await callDeepSeekJsonWithTimeout(
+        compactBody,
+        Math.min(DIRECTION_HYPOTHESIS_TIMEOUT_MS, 22000),
+        Math.min(DIRECTION_HYPOTHESIS_REPAIR_TIMEOUT_MS, 6000)
+      );
+      return { report, meta: { ok: true, retryMode: "compact", primaryError: primaryError.message } };
+    } catch (compactError) {
+      return {
+        report: {},
+        meta: {
+          ok: false,
+          retryMode: "fallback",
+          primaryError: primaryError.message,
+          compactError: compactError.message,
+        },
+      };
+    }
+  }
 }
 
 function firstText(values, fallback = "信息不足") {
@@ -1293,16 +1461,25 @@ function collectLibraryTerms(item) {
   const values = [
     item.title,
     item.name,
+    item.category,
+    item.parentDiscipline,
+    item.industry,
     item.summary,
+    item.whatItIs,
     item.reason,
     item.why,
     item.risk,
     item.nextStep,
     item.firstTry,
     item.focus,
+    item.futureValueHint,
+    item.typicalWork,
   ];
   if (Array.isArray(item.tags)) values.push(...item.tags);
   if (Array.isArray(item.aliases)) values.push(...item.aliases);
+  if (Array.isArray(item.keywords)) values.push(...item.keywords);
+  if (Array.isArray(item.fitSignals)) values.push(...item.fitSignals);
+  if (Array.isArray(item.relatedDirections)) values.push(...item.relatedDirections);
   return values.map((value) => String(value || "").trim()).filter(Boolean);
 }
 
@@ -1321,8 +1498,12 @@ function scoreLibraryItem(item, haystack) {
 
 function rankLibraryItems(items, haystack, limit = 6) {
   return (Array.isArray(items) ? items : [])
-    .map((item) => ({ item, score: scoreLibraryItem(item, haystack) }))
-    .sort((a, b) => b.score - a.score)
+    .map((item) => ({
+      item,
+      score: scoreLibraryItem(item, haystack),
+      priority: metadataPriorityScore(item),
+    }))
+    .sort((a, b) => (b.score - a.score) || (b.priority - a.priority))
     .map(({ item }) => item)
     .slice(0, limit);
 }
@@ -1354,6 +1535,8 @@ function collectItemEvidenceTerms(item) {
       .map((tag) => String(tag || "").trim())
       .filter((tag) => tag.length >= 2 && !genericDirectionTokens.has(tag)),
     ...(Array.isArray(item?.aliases) ? item.aliases : []).flatMap((alias) => extractDirectionAnchors(alias)),
+    ...(Array.isArray(item?.keywords) ? item.keywords : []).flatMap((keyword) => extractDirectionAnchors(keyword)),
+    ...(Array.isArray(item?.fitSignals) ? item.fitSignals : []).flatMap((signal) => extractDirectionAnchors(signal)),
   ], 8);
 }
 
@@ -1519,7 +1702,14 @@ function buildCatalogPossibilities(careerProfile, limit = 2, parts = buildOvervi
 function findGoalLibraryItemByTitle(title, goalMode = "career") {
   const normalized = normalizeDirectionTitle(title);
   if (!normalized) return null;
-  return getGoalLibraryItems(goalMode).find((item) => normalizeDirectionTitle(item?.title || item?.name) === normalized) || null;
+  return getGoalLibraryItems(goalMode).find((item) => {
+    const candidates = [
+      item?.title,
+      item?.name,
+      ...(Array.isArray(item?.aliases) ? item.aliases : []),
+    ];
+    return candidates.some((candidate) => normalizeDirectionTitle(candidate) === normalized);
+  }) || null;
 }
 
 function buildCompactVerdict(item, parts, kind = "direction", index = 0) {
@@ -1549,6 +1739,7 @@ function buildCompactVerdict(item, parts, kind = "direction", index = 0) {
 
 function buildCompactWhatItIs(title, parts) {
   const libraryItem = findGoalLibraryItemByTitle(title, parts.goalMode);
+  if (isUsefulTextValue(libraryItem?.whatItIs)) return String(libraryItem.whatItIs).trim();
   if (isUsefulTextValue(libraryItem?.summary)) return String(libraryItem.summary).trim();
 
   if (parts.goalMode === "study") {
@@ -1600,7 +1791,9 @@ function buildCompactWhyYou(title, item, parts, evidence = []) {
 }
 
 function buildCompactFutureValue(title, item, parts, kind = "direction") {
+  const libraryItem = findGoalLibraryItemByTitle(title, parts.goalMode) || item;
   const label = String(item?.label || "").trim();
+  if (isUsefulTextValue(libraryItem?.futureValueHint)) return String(libraryItem.futureValueHint).trim();
   if (kind === "route") {
     if (parts.goalMode === "study") {
       if (label === "最匹配背景线") return "这条线和你现有背景更对口，申请叙事通常更容易成立。";
@@ -1662,6 +1855,33 @@ function buildCompactCard(item, parts, kind = "direction", index = 0) {
   };
 }
 
+function mergeCompactCardFromSource(sourceItem, parts, kind = "direction", index = 0) {
+  const source = sourceItem && typeof sourceItem === "object" ? sourceItem : {};
+  const fallback = buildCompactCard(source, parts, kind, index);
+  return {
+    ...fallback,
+    ...(kind === "route" && isUsefulTextValue(source.label) ? { label: String(source.label).trim() } : {}),
+    title: String(source.title || fallback.title || "").trim(),
+    verdict: isUsefulTextValue(source.verdict) ? String(source.verdict).trim() : fallback.verdict,
+    whatItIs: polishCardSentence(pickUsefulText([
+      source.whatItIs,
+      source.summary,
+      fallback.whatItIs,
+    ], fallback.whatItIs)),
+    whyYou: polishCardSentence(pickUsefulText([
+      source.whyYou,
+      source.explanation,
+      source.reason,
+      fallback.whyYou,
+    ], fallback.whyYou)),
+    futureValue: polishCardSentence(pickUsefulText([
+      source.futureValue,
+      source.firstTry,
+      fallback.futureValue,
+    ], fallback.futureValue)),
+  };
+}
+
 function buildCatalogContext(careerProfile, moduleType = "career", limit = 6) {
   const library = loadCareerLibrary();
   const text = profileTexts(careerProfile);
@@ -1683,7 +1903,7 @@ function uniqueNonEmpty(items, limit = 6) {
 function normalizeDirectionTitle(text) {
   const value = String(text || "").trim();
   if (!value) return "";
-  return value.length > 28 ? value.slice(0, 28) : value;
+  return value.length > 40 ? value.slice(0, 40) : value;
 }
 
 function buildDirectionCandidates(careerProfile, goalMode = inferGoalMode(careerProfile)) {
@@ -1715,12 +1935,6 @@ const genericDirectionTokens = new Set([
   "路线",
   "场景",
   "工作",
-  "策略",
-  "分析",
-  "运营",
-  "项目",
-  "业务",
-  "管理",
   "助理",
   "专员",
   "执行",
@@ -2027,12 +2241,14 @@ function ensureOverviewFields(report, careerProfile) {
     const safeItem = item && typeof item === "object" ? item : {};
     const title = normalizeDirectionTitle(safeItem.title);
     if (!isUsefulTextValue(title) || !isGoalModeCompatibleTitle(title, goalMode) || !hasDirectionSupport(title, careerProfile, goalMode)) continue;
-    const explanation = isUsefulTextValue(safeItem.explanation) && !containsOverviewBoilerplate(safeItem.explanation)
-      ? String(safeItem.explanation).trim()
-      : buildDirectionExplanation(title, parts, supportedDirections.length);
-    if (!isUsefulTextValue(explanation)) continue;
     if (supportedDirections.some((entry) => entry.title === title)) continue;
-    supportedDirections.push({ title, explanation });
+    supportedDirections.push({
+      ...safeItem,
+      title,
+      explanation: isUsefulTextValue(safeItem.explanation) && !containsOverviewBoilerplate(safeItem.explanation)
+        ? String(safeItem.explanation).trim()
+        : buildDirectionExplanation(title, parts, supportedDirections.length),
+    });
     if (supportedDirections.length >= 3) break;
   }
   if (supportedDirections.length < 3) {
@@ -2041,13 +2257,14 @@ function ensureOverviewFields(report, careerProfile) {
       if (supportedDirections.length >= 3) break;
       if (!item?.title || routeTitles.includes(item.title)) continue;
       supportedDirections.push({
+        ...item,
         title: item.title,
         explanation: buildDirectionExplanationFromRouteItem(item, parts, item.title),
       });
       routeTitles.push(item.title);
     }
   }
-  safeReport.suitableDirections = supportedDirections.map((item, index) => buildCompactCard(item, parts, "direction", index));
+  safeReport.suitableDirections = supportedDirections.map((item, index) => mergeCompactCardFromSource(item, parts, "direction", index));
 
   const sourceRoutes = Array.isArray(safeReport.routeCards) ? safeReport.routeCards.slice(0, 6) : [];
   const supportedRoutes = [];
@@ -2055,33 +2272,14 @@ function ensureOverviewFields(report, careerProfile) {
     const safeItem = item && typeof item === "object" ? item : {};
     const title = normalizeDirectionTitle(safeItem.title);
     if (!isUsefulTextValue(title) || isGenericRouteTitle(title) || !isGoalModeCompatibleTitle(title, goalMode) || !hasDirectionSupport(title, careerProfile, goalMode)) continue;
-    const routeTemplate = {
-      title,
-      tags: Array.isArray(safeItem.tags) ? safeItem.tags : extractDirectionAnchors(title),
-      risk: safeItem.risk,
-      nextStep: safeItem.nextStep,
-    };
-    const evidence = findItemEvidence(routeTemplate, careerProfile, 2, goalMode);
-    const why = isUsefulTextValue(safeItem.why) && !containsOverviewBoilerplate(safeItem.why)
-      ? String(safeItem.why).trim()
-      : buildRouteWhy(title, routeTemplate, parts, evidence);
-    const risk = isUsefulTextValue(safeItem.risk) && !containsOverviewBoilerplate(safeItem.risk)
-      ? String(safeItem.risk).trim()
-      : buildRouteRisk(title, routeTemplate, parts, evidence);
-    const nextStep = isUsefulTextValue(safeItem.nextStep) && !containsOverviewBoilerplate(safeItem.nextStep)
-      ? String(safeItem.nextStep).trim()
-      : buildRouteNextStep(title, routeTemplate, parts, evidence);
-    if (!isUsefulTextValue(why) && !isUsefulTextValue(risk) && !isUsefulTextValue(nextStep)) continue;
     const usedLabels = supportedRoutes.map((entry) => entry.label).filter(Boolean);
     const preferredLabel = normalizeRouteLabel(safeItem.label, goalMode);
     supportedRoutes.push({
+      ...safeItem,
       label: preferredLabel && !usedLabels.includes(preferredLabel)
         ? preferredLabel
         : buildRouteLabelByIndex(supportedRoutes.length, usedLabels, goalMode),
       title,
-      why,
-      risk,
-      nextStep,
     });
     if (supportedRoutes.length >= 4) break;
   }
@@ -2098,24 +2296,26 @@ function ensureOverviewFields(report, careerProfile) {
       routeTitles.push(item.title);
     }
   }
-  safeReport.routeCards = supportedRoutes.map((item, index) => buildCompactCard(item, parts, "route", index));
+  safeReport.routeCards = supportedRoutes.map((item, index) => mergeCompactCardFromSource(item, parts, "route", index));
 
   const sourcePossibilities = Array.isArray(safeReport.newPossibilities) ? safeReport.newPossibilities.slice(0, 4) : [];
   const routeTitles = (safeReport.routeCards || []).map((item) => item?.title).filter(Boolean);
-  safeReport.newPossibilities = sourcePossibilities
+  const normalizedPossibilities = sourcePossibilities
     .map((item) => (item && typeof item === "object" ? item : {}))
     .filter((item) => {
-      if (!isUsefulTextValue(item.title) || !isUsefulTextValue(item.reason || item.firstTry)) return false;
+      if (!isUsefulTextValue(item.title)) return false;
       if (!isGoalModeCompatibleTitle(item.title, goalMode)) return false;
       if (!hasDirectionSupport(item.title, careerProfile, goalMode)) return false;
       return isDistinctPossibilityTitle(item.title, routeTitles);
     })
     .map((item) => ({
-      title: item.title,
-      reason: containsOverviewBoilerplate(item.reason) ? buildPossibilityReason(item, parts, routeTitles) : String(item.reason).trim(),
-      firstTry: containsOverviewBoilerplate(item.firstTry) ? buildPossibilityFirstTry(item, parts, routeTitles) : String(item.firstTry).trim(),
+      ...item,
+      title: normalizeDirectionTitle(item.title),
+      reason: containsOverviewBoilerplate(item.reason) ? buildPossibilityReason(item, parts, routeTitles) : String(item.reason || "").trim(),
+      firstTry: containsOverviewBoilerplate(item.firstTry) ? buildPossibilityFirstTry(item, parts, routeTitles) : String(item.firstTry || "").trim(),
     }))
     .slice(0, 2);
+  safeReport.newPossibilities = normalizedPossibilities;
   if (safeReport.newPossibilities.length < 2) {
     const catalogPossibilities = buildCatalogPossibilities(careerProfile, 2, parts, routeTitles);
     for (const item of catalogPossibilities) {
@@ -2130,7 +2330,7 @@ function ensureOverviewFields(report, careerProfile) {
       .filter((item) => isDistinctPossibilityTitle(item.title, routeTitles))
       .slice(0, 2);
   }
-  safeReport.newPossibilities = safeReport.newPossibilities.map((item, index) => buildCompactCard(item, parts, "possibility", index));
+  safeReport.newPossibilities = safeReport.newPossibilities.map((item, index) => mergeCompactCardFromSource(item, parts, "possibility", index));
 
   const shortcomings = ensureObjectField(safeReport, "shortcomings");
   setTextIfMissing(safeReport, shortcomings, "summary", "当前最大短板不是经历少，而是经历和能力之间的证据链还不够清楚。", "shortcomings.summary");
@@ -2277,12 +2477,12 @@ function getOverviewLayerConfig(layerType) {
   };
 }
 
-async function runOverviewLayer(layerType, careerProfile, goalMode = inferGoalMode(careerProfile)) {
+async function runOverviewLayer(layerType, careerProfile, goalMode = inferGoalMode(careerProfile), extras = {}) {
   const config = getOverviewLayerConfig(layerType);
   const primaryBody = buildJsonCompletionBody({
     systemPrompt: config.getSystemPrompt(goalMode),
     contract: config.getContract(goalMode),
-    userPrompt: config.buildPrompt(careerProfile, goalMode),
+    userPrompt: config.buildPrompt(careerProfile, goalMode, "", extras),
     maxTokens: config.maxTokens,
     temperature: config.temperature,
   });
@@ -2295,7 +2495,7 @@ async function runOverviewLayer(layerType, careerProfile, goalMode = inferGoalMo
       const compactBody = buildJsonCompletionBody({
         systemPrompt: config.getSystemPrompt(goalMode),
         contract: config.getCompactContract(goalMode),
-        userPrompt: config.buildCompactPrompt(careerProfile, goalMode, primaryError.message),
+        userPrompt: config.buildCompactPrompt(careerProfile, goalMode, primaryError.message, extras),
         maxTokens: config.compactMaxTokens,
         temperature: config.compactTemperature,
       });
@@ -2328,22 +2528,25 @@ async function runOverviewLayer(layerType, careerProfile, goalMode = inferGoalMo
   }
 }
 
-async function createOverviewReport(careerProfile) {
+async function createOverviewReport(careerProfile, resumeText = "") {
   const goalMode = inferGoalMode(careerProfile);
+  const hypothesisLayer = await createDirectionHypotheses(careerProfile, resumeText, goalMode);
   const [diagnosisLayer, pathLayer] = await Promise.all([
     runOverviewLayer("diagnosis", careerProfile, goalMode),
-    runOverviewLayer("paths", careerProfile, goalMode),
+    runOverviewLayer("paths", careerProfile, goalMode, { hypotheses: hypothesisLayer.report, resumeText }),
   ]);
 
   const mergedReport = {
     ...(diagnosisLayer.report || {}),
-    ...(pathLayer.report || {}),
+    ...((pathLayer.meta?.ok ? pathLayer.report : hypothesisLayer.report) || {}),
     meta: {
       ...(diagnosisLayer.report?.meta || {}),
       ...(pathLayer.report?.meta || {}),
       layeredOverview: true,
       goalMode,
+      directionHypotheses: hypothesisLayer.report || {},
       overviewLayers: {
+        hypotheses: hypothesisLayer.meta,
         diagnosis: diagnosisLayer.meta,
         paths: pathLayer.meta,
       },
@@ -2355,11 +2558,14 @@ async function createOverviewReport(careerProfile) {
     ...(safeReport.meta || {}),
     layeredOverview: true,
     goalMode,
+    directionHypotheses: hypothesisLayer.report || {},
     overviewLayers: {
+      hypotheses: hypothesisLayer.meta,
       diagnosis: diagnosisLayer.meta,
       paths: pathLayer.meta,
     },
     overviewRetryModes: {
+      hypotheses: hypothesisLayer.meta?.retryMode || "primary",
       diagnosis: diagnosisLayer.meta?.retryMode || "primary",
       paths: pathLayer.meta?.retryMode || "primary",
     },
@@ -2395,7 +2601,7 @@ async function streamDeepSeekChat(payload, res) {
       temperature: 0.25,
       max_tokens: CHAT_MAX_TOKENS,
       stream: true,
-      thinking: { type: "disabled" },
+      thinking: buildThinkingConfig(),
       messages: buildResumeChatMessages(payload),
     }),
     signal: AbortSignal.timeout(AI_TIMEOUT_MS),
@@ -2471,11 +2677,11 @@ async function repairJsonWithDeepSeek(badJson, parseError, timeoutMs = AI_TIMEOU
       Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
     },
     body: JSON.stringify({
-	      model: DEEPSEEK_MODEL,
-	      temperature: 0,
-	      max_tokens: JSON_REPAIR_MAX_TOKENS,
-      response_format: { type: "json_object" },
-      thinking: { type: "disabled" },
+		      model: DEEPSEEK_MODEL,
+		      temperature: 0,
+		      max_tokens: JSON_REPAIR_MAX_TOKENS,
+	      response_format: { type: "json_object" },
+	      thinking: buildThinkingConfig("disabled"),
       messages: [
         {
           role: "system",
@@ -2547,7 +2753,7 @@ async function handleAnalyzeResume(req, res) {
     }
 
     try {
-      const report = await createOverviewReport(careerProfile);
+      const report = await createOverviewReport(careerProfile, resumeText);
       report.meta = {
         ...(report.meta || {}),
         mode: "ai",
@@ -2559,9 +2765,11 @@ async function handleAnalyzeResume(req, res) {
         fileName: file?.name || null,
         extractedTextChars: resumeText.length,
         profileInputChars: Math.min(resumeText.length, MAX_PROFILE_RESUME_TEXT_CHARS),
+        hypothesisInputChars: Math.min(resumeText.length, MAX_HYPOTHESIS_RESUME_TEXT_CHARS),
         tokenBudget: {
           profileMaxTokens: PROFILE_MAX_TOKENS,
           overviewMaxTokens: OVERVIEW_MAX_TOKENS,
+          directionHypothesisMaxTokens: DIRECTION_HYPOTHESIS_MAX_TOKENS,
           moduleMaxTokens: MODULE_MAX_TOKENS,
           chatMaxTokens: CHAT_MAX_TOKENS,
         },
@@ -2646,9 +2854,11 @@ async function handleCreateCareerProfile(req, res) {
           fileName: file?.name || null,
           extractedTextChars: resumeText.length,
           profileInputChars: Math.min(resumeText.length, MAX_PROFILE_RESUME_TEXT_CHARS),
+          hypothesisInputChars: Math.min(resumeText.length, MAX_HYPOTHESIS_RESUME_TEXT_CHARS),
           tokenBudget: {
             profileMaxTokens: PROFILE_MAX_TOKENS,
             overviewMaxTokens: OVERVIEW_MAX_TOKENS,
+            directionHypothesisMaxTokens: DIRECTION_HYPOTHESIS_MAX_TOKENS,
             moduleMaxTokens: MODULE_MAX_TOKENS,
             chatMaxTokens: CHAT_MAX_TOKENS,
           },
@@ -2686,7 +2896,7 @@ async function handleCreateOverview(req, res) {
     }
 
     try {
-      const report = await createOverviewReport(payload.careerProfile);
+      const report = await createOverviewReport(payload.careerProfile, normalizeText(payload.extractedResumeText, MAX_RESUME_TEXT_CHARS));
       report.meta = {
         ...(report.meta || {}),
         mode: "ai",
@@ -2879,7 +3089,7 @@ async function handleTestAi(req, res) {
         temperature: 0,
         max_tokens: 80,
         response_format: { type: "json_object" },
-        thinking: { type: "disabled" },
+        thinking: buildThinkingConfig("disabled"),
         messages: [
           { role: "system", content: "只返回严格 JSON。" },
           { role: "user", content: "返回 {\"ok\":true,\"message\":\"connected\"}" },
