@@ -564,6 +564,26 @@ function getGoalModeCopy(goalMode = "career") {
   };
 }
 
+function buildDirectionSpaceReference(goalMode = "career") {
+  if (goalMode === "study") {
+    return [
+      "下面是方向空间参考，用来帮助你扩大搜索范围、避免推荐过窄。它不是必须逐条覆盖的清单，也不是固定答案库。",
+      "你的第一原则仍然是：先基于用户的原始简历、目标和经历证据，自由判断最贴合的具体专业方向；然后再参考这个方向空间，对答案做细化命名、补充比较和去重。",
+      "如果用户适合更细的具体方向，请优先输出细分方向，而不是停留在泛泛大类。例如不要只写“传媒”，要尽量细到“社交媒体传播 / 整合营销传播 / 企业传播 / 舆论传播 / 公共关系”；不要只写“商科”，要尽量细到“市场营销 / 商业分析 / 应用经济学 / 品牌管理 / 组织行为”。",
+      "学科方向空间包括但不限于：商科、计算机科学、数学、物理、化学、生物、医学、药学、工程学、传媒、国际关系、法学、信息学、历史学、文学、哲学、语言学、材料学、环境学、人工智能学、金融学、经济学、管理学、运动科学、政治学、公共管理学、人力资源管理学、社会学、农村农业发展、土木、建筑、航天航空、网络安全等，并可继续细分到机械工程、社交媒体、民商法、应用经济学等具体方向。",
+      "当多个方向都成立时，再用以下顺序比较优先级：职业先进性 > 薪资均值 > 学历均值 > 能力稀缺性。但无论如何，排序不能压过与用户简历证据的真实贴合度。",
+    ].join("\n");
+  }
+
+  return [
+    "下面是方向空间参考，用来帮助你扩大搜索范围、避免推荐过窄。它不是必须逐条覆盖的清单，也不是固定答案库。",
+    "你的第一原则仍然是：先基于用户的原始简历、目标和经历证据，自由判断最贴合的具体岗位方向；然后再参考这个方向空间，对答案做细化命名、补充比较和去重。",
+    "如果用户适合更细的具体方向，请优先输出细分岗位，而不是停留在泛泛大类。例如不要只写“互联网”，要尽量细到“算法工程师 / 架构师 / 前端工程师 / 后端工程师 / AI 产品经理”；不要只写“传播”，要尽量细到“社交媒体传播 / 整合营销传播 / 企业传播 / 公共关系 / 品牌传播”。",
+    "职业方向空间包括但不限于：互联网、人工智能、金融、投资、咨询、品牌管理、公共关系、食品、快消、汽车、政府单位、国际组织、环保、公益、猎头、产业分析、律所、会计师事务所、机器人、通信、建筑设计、房地产、低空经济、航天航空、网络安全等，并可继续细分到算法工程师、架构师、前端工程师、后端工程师、活动策划、产品运营、品牌宣传、战略咨询、科技咨询、数字化转型咨询等具体岗位。",
+    "当多个方向都成立时，再用以下顺序比较优先级：职业先进性 > 薪资均值 > 学历均值 > 能力稀缺性。但无论如何，排序不能压过与用户简历证据的真实贴合度。",
+  ].join("\n");
+}
+
 function buildOverviewPathSystemPrompt(goalMode = "career") {
   const copy = getGoalModeCopy(goalMode);
   return [
@@ -572,6 +592,7 @@ function buildOverviewPathSystemPrompt(goalMode = "career") {
     `当前用户目标是：${copy.modeLabel}。你必须围绕这个目标回答，不能把${copy.directionObject}写成别的类型。`,
     "先基于 career_profile 的证据做判断，再把库候选项当作命名、去重和边界参考。",
     "不要直接照抄库候选项的说明句，必须改写成针对这个人的判断。",
+    buildDirectionSpaceReference(goalMode),
     careerJudgmentPrinciples,
     jsonOnlyContract,
   ].join("\n");
@@ -759,6 +780,7 @@ function buildDirectionHypothesisSystemPrompt(goalMode = "career") {
     `不要先参考方向库，不要被泛化大类绑住。优先输出足够细的具体${copy.directionPromptNoun}，例如“社交媒体传播”“整合营销传播”“消费者洞察”“民商法”“机械工程”，而不是空泛大类。`,
     "必须先判断这个人的经历最像什么，再判断什么方向更有未来上限、AI 结合度和行业机会。",
     "如果两个相近方向都成立，要把差别说清楚：它们分别更看重什么、这个人为什么更偏其中一个。",
+    buildDirectionSpaceReference(goalMode),
     careerJudgmentPrinciples,
     jsonOnlyContract,
   ].join("\n");
@@ -2574,6 +2596,106 @@ async function createOverviewReport(careerProfile, resumeText = "") {
   return attachOverviewQualityMeta(safeReport);
 }
 
+function pickOverviewSectionReport(report, sectionType = "full") {
+  const safe = report && typeof report === "object" ? cloneJson(report) : {};
+  const meta = safe.meta && typeof safe.meta === "object" ? safe.meta : {};
+  const common = {
+    meta,
+  };
+
+  if (sectionType === "diagnosis") {
+    return {
+      ...common,
+      identitySnapshot: safe.identitySnapshot || {},
+      comfortIntro: safe.comfortIntro || "",
+      capabilityDiagnosis: safe.capabilityDiagnosis || {},
+      peerScore: safe.peerScore || {},
+      abilityFields: Array.isArray(safe.abilityFields) ? safe.abilityFields : [],
+      perspectiveUpgrade: safe.perspectiveUpgrade || {},
+      shortcomings: safe.shortcomings || {},
+      improvementAdvice: safe.improvementAdvice || {},
+      closingEncouragement: safe.closingEncouragement || "",
+    };
+  }
+
+  if (sectionType === "directions") {
+    return {
+      ...common,
+      routeCards: Array.isArray(safe.routeCards) ? safe.routeCards : [],
+      suitableDirections: Array.isArray(safe.suitableDirections) ? safe.suitableDirections : [],
+      newPossibilities: Array.isArray(safe.newPossibilities) ? safe.newPossibilities : [],
+      moduleRecommendations: Array.isArray(safe.moduleRecommendations) ? safe.moduleRecommendations : [],
+    };
+  }
+
+  return safe;
+}
+
+async function createOverviewDiagnosisReport(careerProfile) {
+  const goalMode = inferGoalMode(careerProfile);
+  const diagnosisLayer = await runOverviewLayer("diagnosis", careerProfile, goalMode);
+  const mergedReport = {
+    ...(diagnosisLayer.report || {}),
+    meta: {
+      ...(diagnosisLayer.report?.meta || {}),
+      layeredOverview: true,
+      goalMode,
+      overviewLayers: {
+        diagnosis: diagnosisLayer.meta,
+      },
+    },
+  };
+  const safeReport = ensureOverviewFields(mergedReport, careerProfile);
+  safeReport.meta = {
+    ...(safeReport.meta || {}),
+    layeredOverview: true,
+    goalMode,
+    overviewLayers: {
+      diagnosis: diagnosisLayer.meta,
+    },
+    overviewRetryModes: {
+      diagnosis: diagnosisLayer.meta?.retryMode || "primary",
+    },
+  };
+  return pickOverviewSectionReport(attachOverviewQualityMeta(safeReport), "diagnosis");
+}
+
+async function createOverviewDirectionsReport(careerProfile, resumeText = "") {
+  const goalMode = inferGoalMode(careerProfile);
+  const hypothesisLayer = await createDirectionHypotheses(careerProfile, resumeText, goalMode);
+  const pathLayer = await runOverviewLayer("paths", careerProfile, goalMode, { hypotheses: hypothesisLayer.report, resumeText });
+  const mergedReport = {
+    ...((pathLayer.meta?.ok ? pathLayer.report : hypothesisLayer.report) || {}),
+    meta: {
+      ...((pathLayer.meta?.ok ? pathLayer.report?.meta : hypothesisLayer.report?.meta) || {}),
+      layeredOverview: true,
+      goalMode,
+      directionHypotheses: hypothesisLayer.report || {},
+      overviewLayers: {
+        hypotheses: hypothesisLayer.meta,
+        paths: pathLayer.meta,
+      },
+    },
+  };
+  const safeReport = ensureOverviewFields(mergedReport, careerProfile);
+  safeReport.meta = {
+    ...(safeReport.meta || {}),
+    layeredOverview: true,
+    goalMode,
+    directionHypotheses: hypothesisLayer.report || {},
+    overviewLayers: {
+      hypotheses: hypothesisLayer.meta,
+      paths: pathLayer.meta,
+    },
+    overviewRetryModes: {
+      hypotheses: hypothesisLayer.meta?.retryMode || "primary",
+      paths: pathLayer.meta?.retryMode || "primary",
+    },
+    layeredOverviewFailed: Boolean((hypothesisLayer.meta && !hypothesisLayer.meta.ok) && (pathLayer.meta && !pathLayer.meta.ok)),
+  };
+  return pickOverviewSectionReport(attachOverviewQualityMeta(safeReport), "directions");
+}
+
 async function createModuleReport(moduleType, careerProfile, moduleInput) {
   if (!moduleSystemPrompts[moduleType] || !moduleJsonContracts[moduleType]) {
     throw new Error("Unsupported analysis module.");
@@ -2927,6 +3049,107 @@ async function handleCreateOverview(req, res) {
       sendJson(res, 502, {
         error: error.message || "首页总览生成失败，请稍后重试。",
         code: "overview_analysis_failed",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        partial: {
+          careerProfile: payload.careerProfile,
+          extractedResumeText: normalizeText(payload.extractedResumeText),
+          analyzedAt: new Date().toISOString(),
+        },
+      });
+    }
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCreateOverviewDiagnosis(req, res) {
+  try {
+    const payload = await readJson(req);
+
+    if (!payload.careerProfile || typeof payload.careerProfile !== "object") {
+      sendJson(res, 400, { error: "请先完成职业画像生成。" });
+      return;
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+      sendJson(res, 500, {
+        error: "DEEPSEEK_API_KEY is not configured on the local server. This product requires DeepSeek AI analysis.",
+        code: "missing_api_key",
+      });
+      return;
+    }
+
+    try {
+      const report = await createOverviewDiagnosisReport(payload.careerProfile);
+      report.meta = {
+        ...(report.meta || {}),
+        mode: "ai",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        analyzedAt: new Date().toISOString(),
+      };
+      report.careerProfile = payload.careerProfile;
+      report.extractedResumeText = normalizeText(payload.extractedResumeText);
+      sendJson(res, 200, report);
+    } catch (error) {
+      sendJson(res, 502, {
+        error: error.message || "首页诊断层生成失败，请稍后重试。",
+        code: "overview_diagnosis_failed",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        partial: {
+          careerProfile: payload.careerProfile,
+          extractedResumeText: normalizeText(payload.extractedResumeText),
+          analyzedAt: new Date().toISOString(),
+        },
+      });
+    }
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCreateOverviewDirections(req, res) {
+  try {
+    const payload = await readJson(req);
+
+    if (!payload.careerProfile || typeof payload.careerProfile !== "object") {
+      sendJson(res, 400, { error: "请先完成职业画像生成。" });
+      return;
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+      sendJson(res, 500, {
+        error: "DEEPSEEK_API_KEY is not configured on the local server. This product requires DeepSeek AI analysis.",
+        code: "missing_api_key",
+      });
+      return;
+    }
+
+    try {
+      const report = await createOverviewDirectionsReport(
+        payload.careerProfile,
+        normalizeText(payload.extractedResumeText, MAX_RESUME_TEXT_CHARS)
+      );
+      report.meta = {
+        ...(report.meta || {}),
+        mode: "ai",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        analyzedAt: new Date().toISOString(),
+      };
+      report.careerProfile = payload.careerProfile;
+      report.extractedResumeText = normalizeText(payload.extractedResumeText);
+      sendJson(res, 200, report);
+    } catch (error) {
+      sendJson(res, 502, {
+        error: error.message || "首页方向层生成失败，请稍后重试。",
+        code: "overview_directions_failed",
         provider: "deepseek",
         model: DEEPSEEK_MODEL,
         baseUrl: DEEPSEEK_BASE_URL,
@@ -3397,6 +3620,16 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && req.url === "/api/create-overview") {
     handleCreateOverview(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/create-overview-diagnosis") {
+    handleCreateOverviewDiagnosis(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/create-overview-directions") {
+    handleCreateOverviewDirections(req, res);
     return;
   }
 

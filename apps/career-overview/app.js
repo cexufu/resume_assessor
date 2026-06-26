@@ -137,6 +137,27 @@ function sectionNoticeHtml(message) {
   `;
 }
 
+function mergeOverviewReports(currentReport, patchReport) {
+  const current = currentReport && typeof currentReport === "object" ? currentReport : {};
+  const patch = patchReport && typeof patchReport === "object" ? patchReport : {};
+  return {
+    ...current,
+    ...patch,
+    meta: {
+      ...(current.meta && typeof current.meta === "object" ? current.meta : {}),
+      ...(patch.meta && typeof patch.meta === "object" ? patch.meta : {}),
+      overviewLayers: {
+        ...((current.meta && current.meta.overviewLayers && typeof current.meta.overviewLayers === "object") ? current.meta.overviewLayers : {}),
+        ...((patch.meta && patch.meta.overviewLayers && typeof patch.meta.overviewLayers === "object") ? patch.meta.overviewLayers : {}),
+      },
+      overviewRetryModes: {
+        ...((current.meta && current.meta.overviewRetryModes && typeof current.meta.overviewRetryModes === "object") ? current.meta.overviewRetryModes : {}),
+        ...((patch.meta && patch.meta.overviewRetryModes && typeof patch.meta.overviewRetryModes === "object") ? patch.meta.overviewRetryModes : {}),
+      },
+    },
+  };
+}
+
 function hasUsefulFields(item, fields) {
   return fields.some((field) => isUsefulText(item?.[field]));
 }
@@ -571,22 +592,74 @@ async function analyze() {
     });
 
     showLoadingState("overview");
-    const report = await window.ResumeInsightAPI.createOverview({
+    const overviewPayload = {
       careerProfile: state.careerProfile,
       extractedResumeText: state.extractedResumeText,
-    });
-    state.report = report;
-    state.careerProfile = report.careerProfile || null;
-    state.extractedResumeText = report.extractedResumeText || state.extractedResumeText;
-    state.chatHistory = [];
-    renderReport(report);
-    persistAnalysis();
-    resetChatPanel();
-    if (state.user) {
-      await refreshCurrentUser({ skipHistory: true });
-      await loadHistory({ silent: true });
+    };
+    const diagnosisPromise = window.ResumeInsightAPI.createOverviewDiagnosis(overviewPayload)
+      .then((report) => ({ ok: true, report }))
+      .catch((error) => ({ ok: false, error }));
+    const directionsPromise = window.ResumeInsightAPI.createOverviewDirections(overviewPayload)
+      .then((report) => ({ ok: true, report }))
+      .catch((error) => ({ ok: false, error }));
+
+    let finalReportSaved = false;
+    let hasRenderedPartialOverview = false;
+    let diagnosisError = null;
+
+    try {
+      const diagnosisResult = await diagnosisPromise;
+      if (!diagnosisResult.ok) throw diagnosisResult.error;
+      const diagnosisReport = diagnosisResult.report;
+      state.report = mergeOverviewReports(state.report, diagnosisReport);
+      state.careerProfile = diagnosisReport.careerProfile || state.careerProfile;
+      state.extractedResumeText = diagnosisReport.extractedResumeText || state.extractedResumeText;
+      state.chatHistory = [];
+      stopLoadingState();
+      renderReport(state.report);
+      persistAnalysis({
+        isPartial: true,
+        source: "overview_diagnosis_ready",
+      });
+      hasRenderedPartialOverview = true;
+      showProgressToast("首页诊断已生成，方向比较继续处理中");
+    } catch (error) {
+      diagnosisError = error;
     }
-    showToast("分析已生成");
+
+    try {
+      const directionsResult = await directionsPromise;
+      if (!directionsResult.ok) throw directionsResult.error;
+      const directionsReport = directionsResult.report;
+      state.report = mergeOverviewReports(state.report, directionsReport);
+      state.careerProfile = directionsReport.careerProfile || state.careerProfile;
+      state.extractedResumeText = directionsReport.extractedResumeText || state.extractedResumeText;
+      state.chatHistory = [];
+      stopLoadingState();
+      renderReport(state.report);
+      persistAnalysis();
+      finalReportSaved = true;
+      resetChatPanel();
+      if (state.user) {
+        await refreshCurrentUser({ skipHistory: true });
+        await loadHistory({ silent: true });
+      }
+      showToast(hasRenderedPartialOverview ? "方向比较已补充完成" : "分析已生成");
+    } catch (error) {
+      if (hasRenderedPartialOverview && state.report) {
+        persistAnalysis({
+          isPartial: true,
+          error: error.message,
+          source: error.data?.code || "overview_directions_partial_failure",
+        });
+        showToast("首页方向层生成较慢，先展示已完成的诊断内容");
+      } else if (diagnosisError) {
+        throw diagnosisError;
+      } else {
+        throw error;
+      }
+    }
+    if (!finalReportSaved && diagnosisError && !hasRenderedPartialOverview) throw diagnosisError;
   } catch (error) {
     const partialCareerProfile = error.data?.partial?.careerProfile || state.careerProfile;
     const partialResumeText = error.data?.partial?.extractedResumeText || state.extractedResumeText || payload.resumeText;
@@ -701,6 +774,11 @@ function showPartialState(message, options = {}) {
   qs("#chatDock").classList.add("collapsed");
   qs("#chatToggleBtn").textContent = "展开";
   if (!options.silent) showToast("已保留职业画像");
+}
+
+function showProgressToast(message) {
+  if (!message) return;
+  showToast(message);
 }
 
 function renderReport(report) {

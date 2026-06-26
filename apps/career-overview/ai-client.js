@@ -97,7 +97,7 @@ async function analyzeResume(payload) {
   return requestJson("/api/analyze-resume", {
     method: "POST",
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(130_000),
+    signal: AbortSignal.timeout(190_000),
   });
 }
 
@@ -113,7 +113,23 @@ async function createOverview(payload) {
   return requestJson("/api/create-overview", {
     method: "POST",
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(50_000),
+    signal: AbortSignal.timeout(130_000),
+  });
+}
+
+async function createOverviewDiagnosis(payload) {
+  return requestJson("/api/create-overview-diagnosis", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(75_000),
+  });
+}
+
+async function createOverviewDirections(payload) {
+  return requestJson("/api/create-overview-directions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(140_000),
   });
 }
 
@@ -137,7 +153,7 @@ async function analyzeModule(moduleType, payload) {
   return requestJson(endpoint, {
     method: "POST",
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(130_000),
   });
 }
 
@@ -191,6 +207,8 @@ window.ResumeInsightAPI = {
   analyzeResume,
   createCareerProfile,
   createOverview,
+  createOverviewDiagnosis,
+  createOverviewDirections,
   analyzeModule,
   streamResumeChat,
 };
