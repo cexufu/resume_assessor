@@ -1587,13 +1587,15 @@ function buildCompactWhyYou(title, item, parts, evidence = []) {
   });
   const lead = filteredEvidence[0] || parts.topExperience?.evidence || parts.topSkill?.evidence || parts.topStrength?.evidence || parts.evidenceText;
   const extra = filteredEvidence[1] || "";
+  const leadSnippet = compactEvidenceSnippet(lead);
+  const extraSnippet = compactEvidenceSnippet(extra);
   if (parts.goalMode === "study") {
-    if (lead && extra) return `你已有“${lead}”和“${extra}”，说明你和这个专业看重的 ${fitTerms || "课程基础与项目表达"} 不是从零开始。`;
-    if (lead) return `你已有“${lead}”，它能支撑这个专业最看重的基础匹配和申请叙事。`;
+    if (leadSnippet && extraSnippet) return `你已有“${leadSnippet}”和“${extraSnippet}”，说明你和这个专业看重的 ${fitTerms || "课程基础与项目表达"} 不是从零开始。`;
+    if (leadSnippet) return `你已有“${leadSnippet}”，它能支撑这个专业最看重的基础匹配和申请叙事。`;
     return `你现在和这个专业有相邻基础，但还需要更直接的课程、项目或动机证据。`;
   }
-  if (lead && extra) return `你已有“${lead}”和“${extra}”，说明你和这个方向看重的 ${fitTerms || "分析与推进"} 不是从零开始。`;
-  if (lead) return `你已有“${lead}”，它能支撑这个岗位最看重的基础能力与经验。`;
+  if (leadSnippet && extraSnippet) return `你已有“${leadSnippet}”和“${extraSnippet}”，说明你和这个方向看重的 ${fitTerms || "分析与推进"} 不是从零开始。`;
+  if (leadSnippet) return `你已有“${leadSnippet}”，它能支撑这个岗位最看重的基础能力与经验。`;
   return `你现在和这个方向有相邻基础，但还需要更直接的代表项目证据。`;
 }
 
@@ -1630,10 +1632,22 @@ function buildCompactFutureValue(title, item, parts, kind = "direction") {
   return "这个方向通常能带来更稳定的行业机会，也方便后续再细分。";
 }
 
-function shortenCardSentence(text, limit = 50) {
+function compactEvidenceSnippet(text, softLimit = 20) {
   const value = String(text || "").replace(/\s+/g, " ").trim();
   if (!value) return "";
-  return value.length > limit ? `${value.slice(0, limit)}...` : value;
+  const sentence = value.split(/[。！？!?\n]/).find(Boolean) || value;
+  const clauses = sentence.split(/[；;，,:：]/).map((item) => item.trim()).filter(Boolean);
+  const preferred = clauses.find((item) => item.length <= softLimit) || clauses[0] || sentence;
+  return preferred;
+}
+
+function polishCardSentence(text) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (!value) return "";
+  return value
+    .replace(/，{2,}/g, "，")
+    .replace(/。{2,}/g, "。")
+    .replace(/\s*。\s*$/g, "。");
 }
 
 function buildCompactCard(item, parts, kind = "direction", index = 0) {
@@ -1642,9 +1656,9 @@ function buildCompactCard(item, parts, kind = "direction", index = 0) {
   return {
     ...item,
     verdict: buildCompactVerdict(item, parts, kind, index),
-    whatItIs: shortenCardSentence(buildCompactWhatItIs(title, parts), 42),
-    whyYou: shortenCardSentence(buildCompactWhyYou(title, item, parts, evidence), 54),
-    futureValue: shortenCardSentence(buildCompactFutureValue(title, item, parts, kind), 42),
+    whatItIs: polishCardSentence(buildCompactWhatItIs(title, parts)),
+    whyYou: polishCardSentence(buildCompactWhyYou(title, item, parts, evidence)),
+    futureValue: polishCardSentence(buildCompactFutureValue(title, item, parts, kind)),
   };
 }
 
