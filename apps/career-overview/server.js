@@ -1235,6 +1235,7 @@ function normalizeApplicationDraft(rawDraft = {}) {
   const basicProfile = draft.basicProfile && typeof draft.basicProfile === "object" ? draft.basicProfile : {};
   const experienceEntries = Array.isArray(draft.experienceEntries) ? draft.experienceEntries : [];
   const storyBank = Array.isArray(draft.storyBank) ? draft.storyBank : [];
+  const applicationHints = draft.applicationHints && typeof draft.applicationHints === "object" ? draft.applicationHints : {};
   return {
     basicProfile: {
       educationStage: normalizeText(basicProfile.educationStage, 80),
@@ -1262,16 +1263,34 @@ function normalizeApplicationDraft(rawDraft = {}) {
       result: normalizeText(item?.result, 240),
       skills: Array.isArray(item?.skills) ? item.skills.map((tag) => normalizeText(tag, 40)).filter(Boolean).slice(0, 5) : [],
     })),
+    applicationHints: {
+      summary: normalizeText(applicationHints.summary, 220),
+      priorityModules: Array.isArray(applicationHints.priorityModules)
+        ? applicationHints.priorityModules.map((item) => normalizeText(item, 120)).filter(Boolean).slice(0, 4)
+        : [],
+      missingProof: Array.isArray(applicationHints.missingProof)
+        ? applicationHints.missingProof.map((item) => normalizeText(item, 120)).filter(Boolean).slice(0, 4)
+        : [],
+    },
   };
 }
 
-function buildApplicationPrompt(careerProfile) {
+function buildApplicationPrompt(careerProfile, resumeText = "") {
+  const safeResumeText = normalizeText(resumeText, 5000);
   return [
     "请把 career_profile 整理成申请资料底稿 JSON。",
     "不要重复输出职业分析，只做资料整理。",
+    "用户一进入页面就会直接看到这版底稿，所以请尽量输出可直接编辑的具体内容，而不是留下大片空白。",
+    "如果 basicProfile 某些字段在 career_profile 里不完整，请优先从原始简历正文中补齐能明确识别的事实，例如教育阶段、专业背景、地区或工作身份；只有真的看不出来时才留空。",
+    "experienceEntries 要尽量把简历事实转成更像申请表可复用的表达。",
+    "storyBank 要写成能继续扩成 STAR 的半成品，不要只复制同一句。",
+    "applicationHints 要明确告诉用户：这一版先整理什么、还缺什么证明。",
     "",
     "career_profile：",
     stringifyCompact(careerProfile),
+    safeResumeText ? "" : "",
+    safeResumeText ? "原始简历正文（只用于补齐资料，不得编造）：" : "",
+    safeResumeText || "",
   ].join("\n");
 }
 
@@ -2887,12 +2906,51 @@ function buildDeterministicApplicationDraft(careerProfile) {
 function ensureApplicationDraftFields(draft, careerProfile) {
   const fallback = buildDeterministicApplicationDraft(careerProfile);
   const safeDraft = draft && typeof draft === "object" ? draft : {};
-  safeDraft.basicProfile = safeDraft.basicProfile && typeof safeDraft.basicProfile === "object" ? safeDraft.basicProfile : fallback.basicProfile;
+  const basicProfile = safeDraft.basicProfile && typeof safeDraft.basicProfile === "object" ? safeDraft.basicProfile : {};
+  safeDraft.basicProfile = {
+    educationStage: isUsefulTextValue(basicProfile.educationStage) ? normalizeText(basicProfile.educationStage, 80) : fallback.basicProfile.educationStage,
+    major: isUsefulTextValue(basicProfile.major) ? normalizeText(basicProfile.major, 80) : fallback.basicProfile.major,
+    targetGoal: isUsefulTextValue(basicProfile.targetGoal) ? normalizeText(basicProfile.targetGoal, 80) : fallback.basicProfile.targetGoal,
+    targetDirection: isUsefulTextValue(basicProfile.targetDirection) ? normalizeText(basicProfile.targetDirection, 120) : fallback.basicProfile.targetDirection,
+    currentThought: isUsefulTextValue(basicProfile.currentThought) ? normalizeText(basicProfile.currentThought, 280) : fallback.basicProfile.currentThought,
+    anxiety: isUsefulTextValue(basicProfile.anxiety) ? normalizeText(basicProfile.anxiety, 240) : fallback.basicProfile.anxiety,
+    region: isUsefulTextValue(basicProfile.region) ? normalizeText(basicProfile.region, 80) : fallback.basicProfile.region,
+    age: isUsefulTextValue(basicProfile.age) ? normalizeText(basicProfile.age, 12) : fallback.basicProfile.age,
+  };
   safeDraft.experienceEntries = Array.isArray(safeDraft.experienceEntries) && safeDraft.experienceEntries.length
-    ? safeDraft.experienceEntries.slice(0, 6)
+    ? safeDraft.experienceEntries.slice(0, 6).map((item, index) => {
+      const fallbackItem = fallback.experienceEntries[index] || {};
+      return {
+        id: normalizeText(item?.id, 40) || fallbackItem.id || `exp_${index + 1}`,
+        title: isUsefulTextValue(item?.title) ? normalizeText(item.title, 120) : (fallbackItem.title || `经历 ${index + 1}`),
+        evidence: isUsefulTextValue(item?.evidence) ? normalizeText(item.evidence, 240) : (fallbackItem.evidence || ""),
+        polished: isUsefulTextValue(item?.polished)
+          ? normalizeText(item.polished, 240)
+          : (isUsefulTextValue(item?.evidence) ? normalizeText(item.evidence, 240) : (fallbackItem.polished || fallbackItem.evidence || "")),
+        tags: uniqueNonEmpty([
+          ...(Array.isArray(item?.tags) ? item.tags.map((tag) => normalizeText(tag, 40)) : []),
+          ...(Array.isArray(fallbackItem.tags) ? fallbackItem.tags : []),
+        ], 4),
+      };
+    })
     : fallback.experienceEntries;
   safeDraft.storyBank = Array.isArray(safeDraft.storyBank) && safeDraft.storyBank.length
-    ? safeDraft.storyBank.slice(0, 8)
+    ? safeDraft.storyBank.slice(0, 8).map((item, index) => {
+      const fallbackItem = fallback.storyBank[index] || {};
+      const situation = isUsefulTextValue(item?.situation) ? normalizeText(item.situation, 240) : (fallbackItem.situation || "");
+      return {
+        id: normalizeText(item?.id, 40) || fallbackItem.id || `story_${index + 1}`,
+        title: isUsefulTextValue(item?.title) ? normalizeText(item.title, 120) : (fallbackItem.title || `故事 ${index + 1}`),
+        situation,
+        task: isUsefulTextValue(item?.task) ? normalizeText(item.task, 180) : (fallbackItem.task || situation),
+        action: isUsefulTextValue(item?.action) ? normalizeText(item.action, 240) : (fallbackItem.action || situation),
+        result: isUsefulTextValue(item?.result) ? normalizeText(item.result, 240) : (fallbackItem.result || situation),
+        skills: uniqueNonEmpty([
+          ...(Array.isArray(item?.skills) ? item.skills.map((tag) => normalizeText(tag, 40)) : []),
+          ...(Array.isArray(fallbackItem.skills) ? fallbackItem.skills : []),
+        ], 5),
+      };
+    })
     : fallback.storyBank;
   safeDraft.applicationHints = safeDraft.applicationHints && typeof safeDraft.applicationHints === "object"
     ? safeDraft.applicationHints
@@ -2913,11 +2971,11 @@ function ensureApplicationDraftFields(draft, careerProfile) {
   return safeDraft;
 }
 
-async function createApplicationDraftReport(careerProfile) {
+async function createApplicationDraftReport(careerProfile, resumeText = "") {
   const report = await callDeepSeekJson(buildJsonCompletionBody({
     systemPrompt: applicationSystemPrompt,
     contract: applicationJsonContract,
-    userPrompt: buildApplicationPrompt(careerProfile),
+    userPrompt: buildApplicationPrompt(careerProfile, resumeText),
     maxTokens: APPLICATION_MAX_TOKENS,
     temperature: 0.15,
   }));
@@ -3609,7 +3667,10 @@ async function handleCreateApplicationDraft(req, res) {
     }
 
     try {
-      const report = await createApplicationDraftReport(payload.careerProfile);
+      const report = await createApplicationDraftReport(
+        payload.careerProfile,
+        normalizeText(payload.extractedResumeText, MAX_RESUME_TEXT_CHARS)
+      );
       report.meta = {
         ...(report.meta || {}),
         mode: "ai",

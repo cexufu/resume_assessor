@@ -19,6 +19,14 @@ function fallbackText(value, fallback = "") {
   return text || fallback;
 }
 
+function isUsefulText(value) {
+  return Boolean(String(value ?? "").trim());
+}
+
+function uniqueNonEmpty(values, limit = 6) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((item) => String(item ?? "").trim()).filter(Boolean))).slice(0, limit);
+}
+
 function showToast(message) {
   const toast = qs("#toast");
   if (!toast) return;
@@ -47,6 +55,7 @@ function buildDraftFromProfile(saved) {
   const experiences = Array.isArray(profile.experienceSummary) ? profile.experienceSummary : [];
   const strengths = Array.isArray(profile.strengths) ? profile.strengths : [];
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
+  const missingInformation = Array.isArray(profile.missingInformation) ? profile.missingInformation : [];
   return {
     generatedAt: new Date().toISOString(),
     basicProfile: {
@@ -64,15 +73,99 @@ function buildDraftFromProfile(saved) {
       title: item?.title || `经历 ${index + 1}`,
       evidence: item?.evidence || "",
       polished: item?.evidence || "",
+      tags: uniqueNonEmpty([skills[index]?.name, strengths[index]?.name], 4),
     })),
     storyBank: strengths.slice(0, 6).map((item, index) => ({
       id: `story_${index + 1}`,
       title: item?.name || `故事 ${index + 1}`,
       situation: item?.evidence || "",
+      task: item?.evidence || "",
       action: item?.evidence || "",
       result: item?.evidence || "",
-      skills: [item?.name, skills[index]?.name].filter(Boolean),
+      skills: uniqueNonEmpty([item?.name, skills[index]?.name], 5),
     })),
+    applicationHints: {
+      summary: "这是一版根据职业画像压缩出的申请底稿，先把它改成更像你自己的表达。",
+      priorityModules: uniqueNonEmpty([
+        "先整理 1-2 段最能代表你的经历。",
+        "把目标方向写得更具体，后面的表达会更稳。",
+        "补一个能说明个人贡献和结果变化的项目故事。",
+        "先把故事库里的场景、动作、结果写完整。",
+      ], 4),
+      missingProof: uniqueNonEmpty(missingInformation, 4),
+    },
+  };
+}
+
+function mergeDraftWithProfile(rawDraft, saved) {
+  const fallback = buildDraftFromProfile(saved);
+  const draft = rawDraft && typeof rawDraft === "object" ? rawDraft : {};
+  const basicSource = draft.basicProfile && typeof draft.basicProfile === "object" ? draft.basicProfile : {};
+  const aiExperiences = Array.isArray(draft.experienceEntries) ? draft.experienceEntries : [];
+  const aiStories = Array.isArray(draft.storyBank) ? draft.storyBank : [];
+  const aiHints = draft.applicationHints && typeof draft.applicationHints === "object" ? draft.applicationHints : {};
+  const experienceCount = Math.max(aiExperiences.length, fallback.experienceEntries.length);
+  const storyCount = Math.max(aiStories.length, fallback.storyBank.length);
+
+  return {
+    ...draft,
+    basicProfile: {
+      age: isUsefulText(basicSource.age) ? String(basicSource.age).trim() : fallback.basicProfile.age,
+      region: isUsefulText(basicSource.region) ? String(basicSource.region).trim() : fallback.basicProfile.region,
+      educationStage: isUsefulText(basicSource.educationStage) ? String(basicSource.educationStage).trim() : fallback.basicProfile.educationStage,
+      major: isUsefulText(basicSource.major) ? String(basicSource.major).trim() : fallback.basicProfile.major,
+      targetGoal: isUsefulText(basicSource.targetGoal) ? String(basicSource.targetGoal).trim() : fallback.basicProfile.targetGoal,
+      targetDirection: isUsefulText(basicSource.targetDirection) ? String(basicSource.targetDirection).trim() : fallback.basicProfile.targetDirection,
+      currentThought: isUsefulText(basicSource.currentThought) ? String(basicSource.currentThought).trim() : fallback.basicProfile.currentThought,
+      anxiety: isUsefulText(basicSource.anxiety) ? String(basicSource.anxiety).trim() : fallback.basicProfile.anxiety,
+    },
+    experienceEntries: Array.from({ length: experienceCount }, (_item, index) => {
+      const source = aiExperiences[index] || {};
+      const fallbackItem = fallback.experienceEntries[index] || {};
+      const evidence = fallbackText(source.evidence, fallbackItem.evidence || "");
+      return {
+        id: fallbackText(source.id, fallbackItem.id || `exp_${index + 1}`),
+        title: fallbackText(source.title, fallbackItem.title || `经历 ${index + 1}`),
+        evidence,
+        polished: fallbackText(source.polished, evidence || fallbackItem.polished || ""),
+        tags: uniqueNonEmpty([
+          ...(Array.isArray(source.tags) ? source.tags : []),
+          ...(Array.isArray(fallbackItem.tags) ? fallbackItem.tags : []),
+        ], 4),
+      };
+    }),
+    storyBank: Array.from({ length: storyCount }, (_item, index) => {
+      const source = aiStories[index] || {};
+      const fallbackItem = fallback.storyBank[index] || {};
+      const situation = fallbackText(source.situation, fallbackItem.situation || "");
+      return {
+        id: fallbackText(source.id, fallbackItem.id || `story_${index + 1}`),
+        title: fallbackText(source.title, fallbackItem.title || `故事 ${index + 1}`),
+        situation,
+        task: fallbackText(source.task, fallbackItem.task || situation),
+        action: fallbackText(source.action, fallbackItem.action || situation),
+        result: fallbackText(source.result, fallbackItem.result || situation),
+        skills: uniqueNonEmpty([
+          ...(Array.isArray(source.skills) ? source.skills : []),
+          ...(Array.isArray(fallbackItem.skills) ? fallbackItem.skills : []),
+        ], 5),
+      };
+    }),
+    applicationHints: {
+      summary: fallbackText(aiHints.summary, fallback.applicationHints.summary),
+      priorityModules: uniqueNonEmpty([
+        ...(Array.isArray(aiHints.priorityModules) ? aiHints.priorityModules : []),
+        ...(Array.isArray(fallback.applicationHints.priorityModules) ? fallback.applicationHints.priorityModules : []),
+      ], 4),
+      missingProof: uniqueNonEmpty([
+        ...(Array.isArray(aiHints.missingProof) ? aiHints.missingProof : []),
+        ...(Array.isArray(fallback.applicationHints.missingProof) ? fallback.applicationHints.missingProof : []),
+      ], 4),
+    },
+    meta: {
+      ...(draft.meta || {}),
+      generatedAt: draft?.meta?.generatedAt || new Date().toISOString(),
+    },
   };
 }
 
@@ -83,8 +176,7 @@ const state = {
 
 function ensureDraft() {
   const saved = readJsonStorage(applicationDraftStorageKey);
-  if (saved && typeof saved === "object") return saved;
-  const draft = buildDraftFromProfile(state.analysis);
+  const draft = mergeDraftWithProfile(saved, state.analysis);
   writeJsonStorage(applicationDraftStorageKey, draft);
   return draft;
 }
@@ -93,9 +185,11 @@ async function hydrateDraftFromApi() {
   try {
     const report = await window.ResumeInsightAPI.createApplicationDraft({
       careerProfile: state.analysis.careerProfile,
+      extractedResumeText: state.analysis.extractedResumeText || "",
     });
-    writeJsonStorage(applicationDraftStorageKey, report);
-    return report;
+    const merged = mergeDraftWithProfile(report, state.analysis);
+    writeJsonStorage(applicationDraftStorageKey, merged);
+    return merged;
   } catch {
     return ensureDraft();
   }
@@ -109,6 +203,27 @@ function calculateProgress(draft) {
   const storyScore = Array.isArray(draft.storyBank) ? Math.min(3, draft.storyBank.filter((item) => fallbackText(item?.situation) || fallbackText(item?.action)).length) : 0;
   const total = basicScore + experienceScore + storyScore;
   return Math.round((total / 10) * 100);
+}
+
+function renderHints() {
+  const hints = state.draft.applicationHints || {};
+  qs("#applicationHintSummary").textContent = fallbackText(
+    hints.summary,
+    "这一版会先帮你把经历压成可编辑底稿，后面再慢慢补到更像你自己的申请表达。"
+  );
+  const priorityItems = Array.isArray(hints.priorityModules) && hints.priorityModules.length
+    ? hints.priorityModules
+    : ["先把 1-2 条最能代表你的经历写完整。"];
+  const missingItems = Array.isArray(hints.missingProof) && hints.missingProof.length
+    ? hints.missingProof
+    : ["这版已经能作为起点，后面再补更具体的结果证据。"];
+
+  qs("#applicationPriorityList").innerHTML = priorityItems
+    .map((item) => `<li>${escapeHtml(fallbackText(item))}</li>`)
+    .join("");
+  qs("#applicationMissingList").innerHTML = missingItems
+    .map((item) => `<li>${escapeHtml(fallbackText(item))}</li>`)
+    .join("");
 }
 
 function renderBasicGrid() {
@@ -153,6 +268,10 @@ function renderExperienceList() {
           <span>标题</span>
           <input data-entry-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" />
         </label>
+        <label class="field">
+          <span>能力标签</span>
+          <input data-entry-key="tags" data-id="${escapeHtml(item.id)}" type="text" maxlength="260" value="${escapeHtml((Array.isArray(item.tags) ? item.tags : []).join(" / "))}" />
+        </label>
         <label class="field wide">
           <span>事实底稿</span>
           <textarea data-entry-key="evidence" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.evidence))}</textarea>
@@ -194,6 +313,10 @@ function renderStoryBank() {
           <textarea data-story-key="situation" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.situation))}</textarea>
         </label>
         <label class="field wide">
+          <span>任务</span>
+          <textarea data-story-key="task" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.task))}</textarea>
+        </label>
+        <label class="field wide">
           <span>动作</span>
           <textarea data-story-key="action" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.action))}</textarea>
         </label>
@@ -221,6 +344,7 @@ function renderDraft() {
     modeLine.hidden = true;
     modeLine.textContent = "";
   }
+  renderHints();
   renderBasicGrid();
   renderExperienceList();
   renderStoryBank();
@@ -244,7 +368,11 @@ function bindEvents() {
     if (!target) return;
     const item = state.draft.experienceEntries.find((entry) => entry.id === target.dataset.id);
     if (!item) return;
-    item[target.dataset.entryKey] = target.value;
+    if (target.dataset.entryKey === "tags") {
+      item.tags = target.value.split("/").map((part) => part.trim()).filter(Boolean);
+    } else {
+      item[target.dataset.entryKey] = target.value;
+    }
     persistDraft();
   });
 
@@ -317,6 +445,8 @@ async function init() {
     });
     return;
   }
+  qs("#applicationHintSummary").textContent = "正在把你的职业画像整理成一版可编辑底稿。";
+  qs("#applicationSummaryCopy").textContent = "先把你的经历压成申请语言，进入后就能直接开始改。";
   state.draft = await hydrateDraftFromApi();
   renderDraft();
   bindEvents();

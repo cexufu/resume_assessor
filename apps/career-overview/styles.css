@@ -1427,6 +1427,43 @@ textarea {
   gap: 14px;
 }
 
+.draft-ai-section {
+  display: grid;
+  gap: 14px;
+}
+
+.draft-hints-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.draft-hint-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+}
+
+.draft-hint-card h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.draft-hint-card ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.draft-hint-card li {
+  color: #3d4855;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
 .draft-section {
   display: grid;
   gap: 12px;
@@ -1574,6 +1611,7 @@ textarea {
   .journey-summary,
   .deepen-grid,
   .next-step-teaser,
+  .draft-hints-grid,
   .draft-basic-grid,
   .draft-entry-grid,
   .qa-form-grid {

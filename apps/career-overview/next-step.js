@@ -89,6 +89,7 @@ async function prepareApplicationDraft(saved) {
   try {
     const report = await window.ResumeInsightAPI.createApplicationDraft({
       careerProfile: saved.careerProfile,
+      extractedResumeText: saved.extractedResumeText || "",
     });
     localStorage.setItem(applicationDraftStorageKey, JSON.stringify(report));
     localStorage.removeItem(qaDraftStorageKey);
