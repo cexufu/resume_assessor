@@ -55,6 +55,7 @@ function buildDraftFromProfile(saved) {
   const experiences = Array.isArray(profile.experienceSummary) ? profile.experienceSummary : [];
   const strengths = Array.isArray(profile.strengths) ? profile.strengths : [];
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
+  const evidence = Array.isArray(profile.evidence) ? profile.evidence : [];
   const missingInformation = Array.isArray(profile.missingInformation) ? profile.missingInformation : [];
   return {
     generatedAt: new Date().toISOString(),
@@ -68,6 +69,25 @@ function buildDraftFromProfile(saved) {
       currentThought: basic.currentThought || "",
       anxiety: basic.anxiety || "",
     },
+    educationEntries: [{
+      id: "edu_1",
+      school: "",
+      degree: basic.educationStage || "",
+      major: basic.major || "",
+      period: "",
+      highlights: evidence.find((item) => /(专业|学历|毕业|学位|学校)/.test(String(item || ""))) || "",
+    }].filter((item) => item.degree || item.major || item.school || item.highlights),
+    publicationEntries: [],
+    achievementEntries: uniqueNonEmpty(
+      evidence.filter((item) => /(奖|证书|竞赛|荣誉|发表|论文|专利|作品|报告)/.test(String(item || ""))),
+      4
+    ).map((item, index) => ({
+      id: `ach_${index + 1}`,
+      title: item,
+      type: /(论文|发表|专利|作品|报告)/.test(String(item || "")) ? "成果" : "荣誉",
+      year: "",
+      note: item,
+    })),
     experienceEntries: experiences.map((item, index) => ({
       id: `exp_${index + 1}`,
       title: item?.title || `经历 ${index + 1}`,
@@ -101,9 +121,13 @@ function mergeDraftWithProfile(rawDraft, saved) {
   const fallback = buildDraftFromProfile(saved);
   const draft = rawDraft && typeof rawDraft === "object" ? rawDraft : {};
   const basicSource = draft.basicProfile && typeof draft.basicProfile === "object" ? draft.basicProfile : {};
+  const educationSource = Array.isArray(draft.educationEntries) ? draft.educationEntries : [];
+  const publicationSource = Array.isArray(draft.publicationEntries) ? draft.publicationEntries : [];
+  const achievementSource = Array.isArray(draft.achievementEntries) ? draft.achievementEntries : [];
   const aiExperiences = Array.isArray(draft.experienceEntries) ? draft.experienceEntries : [];
   const aiStories = Array.isArray(draft.storyBank) ? draft.storyBank : [];
   const aiHints = draft.applicationHints && typeof draft.applicationHints === "object" ? draft.applicationHints : {};
+  const educationCount = Math.max(educationSource.length, fallback.educationEntries.length);
   const experienceCount = Math.max(aiExperiences.length, fallback.experienceEntries.length);
   const storyCount = Math.max(aiStories.length, fallback.storyBank.length);
 
@@ -119,6 +143,37 @@ function mergeDraftWithProfile(rawDraft, saved) {
       currentThought: isUsefulText(basicSource.currentThought) ? String(basicSource.currentThought).trim() : fallback.basicProfile.currentThought,
       anxiety: isUsefulText(basicSource.anxiety) ? String(basicSource.anxiety).trim() : fallback.basicProfile.anxiety,
     },
+    educationEntries: Array.from({ length: educationCount }, (_item, index) => {
+      const source = educationSource[index] || {};
+      const fallbackItem = fallback.educationEntries[index] || {};
+      return {
+        id: fallbackText(source.id, fallbackItem.id || `edu_${index + 1}`),
+        school: fallbackText(source.school, fallbackItem.school || ""),
+        degree: fallbackText(source.degree, fallbackItem.degree || ""),
+        major: fallbackText(source.major, fallbackItem.major || ""),
+        period: fallbackText(source.period, fallbackItem.period || ""),
+        highlights: fallbackText(source.highlights, fallbackItem.highlights || ""),
+      };
+    }),
+    publicationEntries: Array.isArray(publicationSource)
+      ? publicationSource.map((item, index) => ({
+        id: fallbackText(item?.id, `pub_${index + 1}`),
+        title: fallbackText(item?.title),
+        type: fallbackText(item?.type),
+        venue: fallbackText(item?.venue),
+        year: fallbackText(item?.year),
+        note: fallbackText(item?.note),
+      }))
+      : [],
+    achievementEntries: Array.isArray(achievementSource) && achievementSource.length
+      ? achievementSource.map((item, index) => ({
+        id: fallbackText(item?.id, `ach_${index + 1}`),
+        title: fallbackText(item?.title),
+        type: fallbackText(item?.type),
+        year: fallbackText(item?.year),
+        note: fallbackText(item?.note),
+      }))
+      : (fallback.achievementEntries || []),
     experienceEntries: Array.from({ length: experienceCount }, (_item, index) => {
       const source = aiExperiences[index] || {};
       const fallbackItem = fallback.experienceEntries[index] || {};
@@ -199,10 +254,13 @@ function calculateProgress(draft) {
   const basic = draft.basicProfile || {};
   const basicFields = ["educationStage", "major", "targetGoal", "targetDirection"];
   const basicScore = basicFields.filter((key) => fallbackText(basic[key])).length;
-  const experienceScore = Array.isArray(draft.experienceEntries) ? Math.min(3, draft.experienceEntries.filter((item) => fallbackText(item?.evidence)).length) : 0;
-  const storyScore = Array.isArray(draft.storyBank) ? Math.min(3, draft.storyBank.filter((item) => fallbackText(item?.situation) || fallbackText(item?.action)).length) : 0;
-  const total = basicScore + experienceScore + storyScore;
-  return Math.round((total / 10) * 100);
+  const educationScore = Array.isArray(draft.educationEntries) ? Math.min(2, draft.educationEntries.filter((item) => fallbackText(item?.degree) || fallbackText(item?.major) || fallbackText(item?.school)).length) : 0;
+  const publicationScore = Array.isArray(draft.publicationEntries) ? Math.min(1, draft.publicationEntries.filter((item) => fallbackText(item?.title)).length) : 0;
+  const achievementScore = Array.isArray(draft.achievementEntries) ? Math.min(1, draft.achievementEntries.filter((item) => fallbackText(item?.title)).length) : 0;
+  const experienceScore = Array.isArray(draft.experienceEntries) ? Math.min(2, draft.experienceEntries.filter((item) => fallbackText(item?.evidence)).length) : 0;
+  const storyScore = Array.isArray(draft.storyBank) ? Math.min(2, draft.storyBank.filter((item) => fallbackText(item?.situation) || fallbackText(item?.action)).length) : 0;
+  const total = basicScore + educationScore + publicationScore + achievementScore + experienceScore + storyScore;
+  return Math.round((total / 12) * 100);
 }
 
 function renderHints() {
@@ -245,6 +303,71 @@ function renderBasicGrid() {
         ? `<textarea data-basic-key="${escapeHtml(key)}" class="compact-textarea" placeholder="${escapeHtml(placeholder)}">${escapeHtml(fallbackText(basic[key]))}</textarea>`
         : `<input data-basic-key="${escapeHtml(key)}" type="text" maxlength="260" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(fallbackText(basic[key]))}" />`}
     </label>
+  `).join("");
+}
+
+function renderEducationEntries() {
+  const items = Array.isArray(state.draft.educationEntries) ? state.draft.educationEntries : [];
+  if (!items.length) {
+    qs("#educationEntryList").innerHTML = '<div class="draft-empty">这里还没有教育背景条目。你可以补学校、学历、专业和时间线。</div>';
+    return;
+  }
+  qs("#educationEntryList").innerHTML = items.map((item, index) => `
+    <article class="draft-entry-card">
+      <div class="draft-entry-card-head">
+        <strong>${escapeHtml(fallbackText(item.school, `教育经历 ${index + 1}`))}</strong>
+      </div>
+      <div class="draft-entry-grid">
+        <label class="field"><span>学校</span><input data-education-key="school" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.school))}" /></label>
+        <label class="field"><span>学历</span><input data-education-key="degree" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.degree))}" /></label>
+        <label class="field"><span>专业</span><input data-education-key="major" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.major))}" /></label>
+        <label class="field"><span>时间</span><input data-education-key="period" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.period))}" /></label>
+        <label class="field wide"><span>亮点</span><textarea data-education-key="highlights" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.highlights))}</textarea></label>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderPublicationEntries() {
+  const items = Array.isArray(state.draft.publicationEntries) ? state.draft.publicationEntries : [];
+  if (!items.length) {
+    qs("#publicationEntryList").innerHTML = '<div class="draft-empty">这里还没有发表或作品条目。没有可以先留空，有的话建议单独列出来。</div>';
+    return;
+  }
+  qs("#publicationEntryList").innerHTML = items.map((item, index) => `
+    <article class="draft-entry-card">
+      <div class="draft-entry-card-head">
+        <strong>${escapeHtml(fallbackText(item.title, `发表 / 作品 ${index + 1}`))}</strong>
+      </div>
+      <div class="draft-entry-grid">
+        <label class="field"><span>标题</span><input data-publication-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" /></label>
+        <label class="field"><span>类型</span><input data-publication-key="type" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.type))}" /></label>
+        <label class="field"><span>载体 / 平台</span><input data-publication-key="venue" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.venue))}" /></label>
+        <label class="field"><span>年份</span><input data-publication-key="year" data-id="${escapeHtml(item.id)}" type="text" maxlength="60" value="${escapeHtml(fallbackText(item.year))}" /></label>
+        <label class="field wide"><span>说明</span><textarea data-publication-key="note" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.note))}</textarea></label>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderAchievementEntries() {
+  const items = Array.isArray(state.draft.achievementEntries) ? state.draft.achievementEntries : [];
+  if (!items.length) {
+    qs("#achievementEntryList").innerHTML = '<div class="draft-empty">这里还没有奖项或成果条目。证书、竞赛、荣誉和代表性成果都可以放进来。</div>';
+    return;
+  }
+  qs("#achievementEntryList").innerHTML = items.map((item, index) => `
+    <article class="draft-entry-card">
+      <div class="draft-entry-card-head">
+        <strong>${escapeHtml(fallbackText(item.title, `奖项 / 成果 ${index + 1}`))}</strong>
+      </div>
+      <div class="draft-entry-grid">
+        <label class="field"><span>标题</span><input data-achievement-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" /></label>
+        <label class="field"><span>类型</span><input data-achievement-key="type" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.type))}" /></label>
+        <label class="field"><span>年份</span><input data-achievement-key="year" data-id="${escapeHtml(item.id)}" type="text" maxlength="60" value="${escapeHtml(fallbackText(item.year))}" /></label>
+        <label class="field wide"><span>说明</span><textarea data-achievement-key="note" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.note))}</textarea></label>
+      </div>
+    </article>
   `).join("");
 }
 
@@ -346,6 +469,9 @@ function renderDraft() {
   }
   renderHints();
   renderBasicGrid();
+  renderEducationEntries();
+  renderPublicationEntries();
+  renderAchievementEntries();
   renderExperienceList();
   renderStoryBank();
 }
@@ -360,6 +486,33 @@ function bindEvents() {
     const target = event.target.closest("[data-basic-key]");
     if (!target) return;
     state.draft.basicProfile[target.dataset.basicKey] = target.value;
+    persistDraft();
+  });
+
+  qs("#educationEntryList").addEventListener("input", (event) => {
+    const target = event.target.closest("[data-education-key]");
+    if (!target) return;
+    const item = state.draft.educationEntries.find((entry) => entry.id === target.dataset.id);
+    if (!item) return;
+    item[target.dataset.educationKey] = target.value;
+    persistDraft();
+  });
+
+  qs("#publicationEntryList").addEventListener("input", (event) => {
+    const target = event.target.closest("[data-publication-key]");
+    if (!target) return;
+    const item = state.draft.publicationEntries.find((entry) => entry.id === target.dataset.id);
+    if (!item) return;
+    item[target.dataset.publicationKey] = target.value;
+    persistDraft();
+  });
+
+  qs("#achievementEntryList").addEventListener("input", (event) => {
+    const target = event.target.closest("[data-achievement-key]");
+    if (!target) return;
+    const item = state.draft.achievementEntries.find((entry) => entry.id === target.dataset.id);
+    if (!item) return;
+    item[target.dataset.achievementKey] = target.value;
     persistDraft();
   });
 

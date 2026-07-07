@@ -1519,6 +1519,11 @@ textarea {
   padding: 16px;
 }
 
+.draft-entry-card input,
+.draft-entry-card textarea {
+  width: 100%;
+}
+
 .draft-entry-card-head {
   display: flex;
   align-items: center;

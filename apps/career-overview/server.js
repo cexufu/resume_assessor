@@ -904,14 +904,17 @@ const applicationSystemPrompt = [
 ].join("\n");
 
 const applicationJsonContract = [
-  "JSON 顶层字段必须为：basicProfile, experienceEntries, storyBank, applicationHints。",
+  "JSON 顶层字段必须为：basicProfile, educationEntries, publicationEntries, achievementEntries, experienceEntries, storyBank, applicationHints。",
   "basicProfile 字段：educationStage, major, targetGoal, targetDirection, currentThought, anxiety, region, age。",
+  "educationEntries 最多 4 项，每项字段：id, school, degree, major, period, highlights。",
+  "publicationEntries 最多 4 项，每项字段：id, title, type, venue, year, note。",
+  "achievementEntries 最多 6 项，每项字段：id, title, type, year, note。",
   "experienceEntries 最多 6 项，每项字段：id, title, evidence, polished, tags。",
   "storyBank 最多 8 项，每项字段：id, title, situation, task, action, result, skills。",
   "applicationHints 字段：summary, priorityModules, missingProof。",
   "priorityModules 最多 4 条，说明用户接下来最该先整理哪几块资料。",
   "missingProof 最多 4 条，说明这份底稿还缺什么关键证据。",
-  "evidence、polished、situation、task、action、result 都必须短，不超过 90 个中文字符。",
+  "school、degree、major、period、title、type、venue、year、note、evidence、polished、situation、task、action、result 都必须短，不超过 90 个中文字符。",
   "storyBank 要尽量和真实经历强关联，不要虚构故事。",
 ].join("\n");
 
@@ -1233,6 +1236,9 @@ function buildModulePrompt(moduleType, careerProfile, moduleInput) {
 function normalizeApplicationDraft(rawDraft = {}) {
   const draft = rawDraft && typeof rawDraft === "object" ? rawDraft : {};
   const basicProfile = draft.basicProfile && typeof draft.basicProfile === "object" ? draft.basicProfile : {};
+  const educationEntries = Array.isArray(draft.educationEntries) ? draft.educationEntries : [];
+  const publicationEntries = Array.isArray(draft.publicationEntries) ? draft.publicationEntries : [];
+  const achievementEntries = Array.isArray(draft.achievementEntries) ? draft.achievementEntries : [];
   const experienceEntries = Array.isArray(draft.experienceEntries) ? draft.experienceEntries : [];
   const storyBank = Array.isArray(draft.storyBank) ? draft.storyBank : [];
   const applicationHints = draft.applicationHints && typeof draft.applicationHints === "object" ? draft.applicationHints : {};
@@ -1247,6 +1253,29 @@ function normalizeApplicationDraft(rawDraft = {}) {
       region: normalizeText(basicProfile.region, 80),
       age: normalizeText(basicProfile.age, 12),
     },
+    educationEntries: educationEntries.slice(0, 4).map((item, index) => ({
+      id: normalizeText(item?.id, 40) || `edu_${index + 1}`,
+      school: normalizeText(item?.school, 120),
+      degree: normalizeText(item?.degree, 80),
+      major: normalizeText(item?.major, 80),
+      period: normalizeText(item?.period, 80),
+      highlights: normalizeText(item?.highlights, 200),
+    })),
+    publicationEntries: publicationEntries.slice(0, 4).map((item, index) => ({
+      id: normalizeText(item?.id, 40) || `pub_${index + 1}`,
+      title: normalizeText(item?.title, 120),
+      type: normalizeText(item?.type, 80),
+      venue: normalizeText(item?.venue, 80),
+      year: normalizeText(item?.year, 40),
+      note: normalizeText(item?.note, 200),
+    })),
+    achievementEntries: achievementEntries.slice(0, 6).map((item, index) => ({
+      id: normalizeText(item?.id, 40) || `ach_${index + 1}`,
+      title: normalizeText(item?.title, 120),
+      type: normalizeText(item?.type, 80),
+      year: normalizeText(item?.year, 40),
+      note: normalizeText(item?.note, 200),
+    })),
     experienceEntries: experienceEntries.slice(0, 8).map((item, index) => ({
       id: normalizeText(item?.id, 40) || `exp_${index + 1}`,
       title: normalizeText(item?.title, 120),
@@ -1282,6 +1311,9 @@ function buildApplicationPrompt(careerProfile, resumeText = "") {
     "不要重复输出职业分析，只做资料整理。",
     "用户一进入页面就会直接看到这版底稿，所以请尽量输出可直接编辑的具体内容，而不是留下大片空白。",
     "如果 basicProfile 某些字段在 career_profile 里不完整，请优先从原始简历正文中补齐能明确识别的事实，例如教育阶段、专业背景、地区或工作身份；只有真的看不出来时才留空。",
+    "educationEntries 要尽量提取学校、学历、专业、时间和最值得写进申请表的亮点。",
+    "publicationEntries 要尽量提取论文、发表、作品、报告、专利、项目产出等可归档成果；如果没有就留空数组，不要编造。",
+    "achievementEntries 要尽量提取奖项、竞赛、证书、重要荣誉或代表性成果；如果没有就留空数组，不要编造。",
     "experienceEntries 要尽量把简历事实转成更像申请表可复用的表达。",
     "storyBank 要写成能继续扩成 STAR 的半成品，不要只复制同一句。",
     "applicationHints 要明确告诉用户：这一版先整理什么、还缺什么证明。",
@@ -2852,6 +2884,8 @@ function buildDeterministicApplicationDraft(careerProfile) {
   const experiences = Array.isArray(safeProfile.experienceSummary) ? safeProfile.experienceSummary : [];
   const strengths = Array.isArray(safeProfile.strengths) ? safeProfile.strengths : [];
   const skills = Array.isArray(safeProfile.skills) ? safeProfile.skills : [];
+  const evidence = Array.isArray(safeProfile.evidence) ? safeProfile.evidence : [];
+  const missingInformation = Array.isArray(safeProfile.missingInformation) ? safeProfile.missingInformation : [];
   const draft = {
     basicProfile: {
       educationStage: normalizeText(basic.educationStage, 80),
@@ -2863,6 +2897,27 @@ function buildDeterministicApplicationDraft(careerProfile) {
       region: normalizeText(basic.region, 80),
       age: normalizeText(basic.age, 12),
     },
+    educationEntries: [{
+      id: "edu_1",
+      school: "",
+      degree: normalizeText(basic.educationStage, 80),
+      major: normalizeText(basic.major, 80),
+      period: "",
+      highlights: pickUsefulText([
+        evidence.find((item) => /(专业|学历|毕业|学位|学校)/.test(String(item || ""))),
+      ], ""),
+    }].filter((item) => isUsefulTextValue(item.degree) || isUsefulTextValue(item.major) || isUsefulTextValue(item.school) || isUsefulTextValue(item.highlights)),
+    publicationEntries: [],
+    achievementEntries: uniqueNonEmpty(
+      evidence.filter((item) => /(奖|证书|竞赛|荣誉|发表|论文|专利|作品|报告)/.test(String(item || ""))),
+      4
+    ).map((item, index) => ({
+      id: `ach_${index + 1}`,
+      title: normalizeText(item, 120),
+      type: /(论文|发表|专利|作品|报告)/.test(String(item || "")) ? "成果" : "荣誉",
+      year: "",
+      note: normalizeText(item, 200),
+    })),
     experienceEntries: experiences.slice(0, 6).map((item, index) => ({
       id: `exp_${index + 1}`,
       title: normalizeText(item?.title, 120) || `经历 ${index + 1}`,
@@ -2888,12 +2943,14 @@ function buildDeterministicApplicationDraft(careerProfile) {
     applicationHints: {
       summary: "这是一版根据职业画像压缩出的申请底稿，适合先整理，再继续补细节。",
       priorityModules: uniqueNonEmpty([
+        "先确认学历、专业、时间线是否完整。",
+        "把发表、作品、奖项这类成果单独列出来。",
         "先整理 1-2 段最能代表你的经历。",
         "把目标方向写得更具体，后面的表达会更稳。",
         "补一个能说明个人贡献和结果变化的项目故事。",
         "先把故事库里的场景、动作、结果写完整。",
       ], 4),
-      missingProof: uniqueNonEmpty(Array.isArray(safeProfile.missingInformation) ? safeProfile.missingInformation : [], 4),
+      missingProof: uniqueNonEmpty(missingInformation, 4),
     },
     meta: {
       mode: "deterministic_local",
@@ -2917,6 +2974,38 @@ function ensureApplicationDraftFields(draft, careerProfile) {
     region: isUsefulTextValue(basicProfile.region) ? normalizeText(basicProfile.region, 80) : fallback.basicProfile.region,
     age: isUsefulTextValue(basicProfile.age) ? normalizeText(basicProfile.age, 12) : fallback.basicProfile.age,
   };
+  safeDraft.educationEntries = Array.isArray(safeDraft.educationEntries) && safeDraft.educationEntries.length
+    ? safeDraft.educationEntries.slice(0, 4).map((item, index) => {
+      const fallbackItem = fallback.educationEntries?.[index] || {};
+      return {
+        id: normalizeText(item?.id, 40) || fallbackItem.id || `edu_${index + 1}`,
+        school: isUsefulTextValue(item?.school) ? normalizeText(item.school, 120) : (fallbackItem.school || ""),
+        degree: isUsefulTextValue(item?.degree) ? normalizeText(item.degree, 80) : (fallbackItem.degree || ""),
+        major: isUsefulTextValue(item?.major) ? normalizeText(item.major, 80) : (fallbackItem.major || ""),
+        period: isUsefulTextValue(item?.period) ? normalizeText(item.period, 80) : (fallbackItem.period || ""),
+        highlights: isUsefulTextValue(item?.highlights) ? normalizeText(item.highlights, 200) : (fallbackItem.highlights || ""),
+      };
+    })
+    : (fallback.educationEntries || []);
+  safeDraft.publicationEntries = Array.isArray(safeDraft.publicationEntries) && safeDraft.publicationEntries.length
+    ? safeDraft.publicationEntries.slice(0, 4).map((item, index) => ({
+      id: normalizeText(item?.id, 40) || `pub_${index + 1}`,
+      title: normalizeText(item?.title, 120),
+      type: normalizeText(item?.type, 80),
+      venue: normalizeText(item?.venue, 80),
+      year: normalizeText(item?.year, 40),
+      note: normalizeText(item?.note, 200),
+    }))
+    : [];
+  safeDraft.achievementEntries = Array.isArray(safeDraft.achievementEntries) && safeDraft.achievementEntries.length
+    ? safeDraft.achievementEntries.slice(0, 6).map((item, index) => ({
+      id: normalizeText(item?.id, 40) || `ach_${index + 1}`,
+      title: normalizeText(item?.title, 120),
+      type: normalizeText(item?.type, 80),
+      year: normalizeText(item?.year, 40),
+      note: normalizeText(item?.note, 200),
+    }))
+    : (fallback.achievementEntries || []);
   safeDraft.experienceEntries = Array.isArray(safeDraft.experienceEntries) && safeDraft.experienceEntries.length
     ? safeDraft.experienceEntries.slice(0, 6).map((item, index) => {
       const fallbackItem = fallback.experienceEntries[index] || {};
