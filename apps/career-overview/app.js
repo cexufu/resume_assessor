@@ -17,18 +17,6 @@ const state = {
 const storageKey = "resume_insight_reader_draft";
 const analysisStorageKey = "resume_insight_career_analysis";
 
-const sampleResume = `符策旭
-年龄：31
-Email: fucx9501@outlook.com / Tel: +86 13311529950
-
-具有多年一线大厂数据治理、危机策略经验的初级数据分析师，熟悉 SQL、Python 和 R 语言，良好适应互联网、生物科技等新科技企业的快节奏和结果导向工作方式，具有隐私合规、Quant 策略、传播支持、算法合规、自动化标准评估和生成等项目经验。
-
-项目经历
-- 数据治理项目：参与数据口径梳理、数据质量监控和自动化评估标准建设，协助产出标准说明和复盘材料。
-- 危机策略支持：参与舆情与风险材料整理，协助形成传播口径、风险研判和响应建议。
-- 隐私与算法合规：参与算法合规、隐私合规相关材料准备，梳理业务流程中的风险点。
-- 自动化评估：使用 SQL、Python 和 R 支持数据提取、清洗、统计分析和报告生成。`;
-
 function qs(selector) {
   return document.querySelector(selector);
 }
@@ -303,6 +291,7 @@ async function handleFileSelect(event) {
   const file = event.target.files?.[0];
   if (!file) {
     state.uploadedFile = null;
+    state.extractedResumeText = "";
     qs("#fileStatus").textContent = "支持 TXT、MD、PDF、DOCX。";
     return;
   }
@@ -310,6 +299,7 @@ async function handleFileSelect(event) {
   if (!isSupportedResume(file)) {
     qs("#resumeFile").value = "";
     state.uploadedFile = null;
+    state.extractedResumeText = "";
     qs("#fileStatus").textContent = "请上传 TXT、MD、PDF 或 DOCX 简历。";
     showToast("文件格式不支持");
     return;
@@ -318,12 +308,15 @@ async function handleFileSelect(event) {
   if (isTextResume(file)) {
     const text = await readFileAsText(file);
     state.uploadedFile = null;
-    qs("#resumeText").value = text.trim();
+    state.extractedResumeText = text.trim();
+    qs("#resumeText").value = state.extractedResumeText;
     qs("#fileStatus").textContent = `已读取文本：${file.name}`;
     persistDraft();
     return;
   }
 
+  state.extractedResumeText = "";
+  qs("#resumeText").value = "";
   const dataUrl = await readFileAsDataUrl(file);
   state.uploadedFile = {
     name: file.name,
@@ -353,7 +346,7 @@ async function handleFileSelect(event) {
 
 function readPayload() {
   return {
-    resumeText: qs("#resumeText").value.trim() || state.extractedResumeText,
+    resumeText: qs("#resumeText").value.trim(),
     file: state.uploadedFile,
     context: {
       age: qs("#ageInput").value.trim(),
@@ -376,23 +369,7 @@ function persistDraft() {
     anxiety: qs("#anxietyInput").value,
     resumeText: qs("#resumeText").value,
   };
-  localStorage.setItem(storageKey, JSON.stringify(draft));
-}
-
-function restoreDraft() {
-  try {
-    const draft = JSON.parse(localStorage.getItem(storageKey) || "null");
-    if (!draft) return;
-    qs("#ageInput").value = draft.age || "";
-    qs("#regionInput").value = draft.region || "";
-    qs("#targetGoalInput").value = draft.targetGoal || "";
-    qs("#currentThoughtInput").value = draft.currentThought || "";
-    qs("#targetDirectionInput").value = draft.targetDirection || "";
-    qs("#anxietyInput").value = draft.anxiety || "";
-    qs("#resumeText").value = draft.resumeText || "";
-  } catch {
-    localStorage.removeItem(storageKey);
-  }
+  sessionStorage.setItem(storageKey, JSON.stringify(draft));
 }
 
 async function refreshHealth() {
@@ -584,7 +561,7 @@ async function analyze() {
     state.chatHistory = [];
     setChatAvailable(false);
     persistDraft();
-    localStorage.removeItem(analysisStorageKey);
+    sessionStorage.removeItem(analysisStorageKey);
     showLoadingState("profile");
     const profileResult = await window.ResumeInsightAPI.createCareerProfile(payload);
     state.careerProfile = profileResult.careerProfile || null;
@@ -1154,7 +1131,7 @@ function exportJson() {
 
 function persistAnalysis(options = {}) {
   if (!state.careerProfile) return;
-  localStorage.setItem(analysisStorageKey, JSON.stringify({
+  sessionStorage.setItem(analysisStorageKey, JSON.stringify({
     careerProfile: state.careerProfile,
     overviewReport: state.report || null,
     extractedResumeText: state.extractedResumeText,
@@ -1167,49 +1144,38 @@ function persistAnalysis(options = {}) {
 
 function restoreAnalysis() {
   try {
-    const saved = JSON.parse(localStorage.getItem(analysisStorageKey) || "null");
+    const saved = JSON.parse(sessionStorage.getItem(analysisStorageKey) || "null");
     if (!saved?.careerProfile) return false;
 
     state.careerProfile = saved.careerProfile;
     state.report = saved.overviewReport || null;
-    state.extractedResumeText = saved.extractedResumeText || qs("#resumeText").value.trim();
+    state.extractedResumeText = saved.extractedResumeText || "";
     state.chatHistory = [];
+
+    const basic = state.careerProfile.basic || {};
+    qs("#ageInput").value = basic.age || "";
+    qs("#regionInput").value = basic.region || "";
+    qs("#targetGoalInput").value = basic.targetGoal || "";
+    qs("#currentThoughtInput").value = basic.currentThought || "";
+    qs("#targetDirectionInput").value = basic.targetDirection || "";
+    qs("#anxietyInput").value = basic.anxiety || "";
+    qs("#resumeText").value = state.extractedResumeText || "";
 
     closeIntakeModal();
 
     if (state.report) {
       renderReport(state.report);
       resetChatPanel();
-      updateNextStepEntry();
-      if (window.location.hash === "#overviewReport") {
-        window.requestAnimationFrame(() => qs("#overviewReport")?.scrollIntoView({ block: "start" }));
-      }
-      return true;
+    } else {
+      showPartialState(saved.error || "已保留职业画像。", { silent: true });
     }
-
-    showPartialState(saved.error || "已保留职业画像。", { silent: true });
     updateNextStepEntry();
+    window.requestAnimationFrame(() => qs("#overviewReport")?.scrollIntoView({ block: "start" }));
     return true;
   } catch {
-    localStorage.removeItem(analysisStorageKey);
+    sessionStorage.removeItem(analysisStorageKey);
     return false;
   }
-}
-
-function fillSample() {
-  qs("#ageInput").value = "31";
-  qs("#regionInput").value = "北京";
-  qs("#targetGoalInput").value = "转行";
-  qs("#currentThoughtInput").value = "想从公关传播和风险策略经验，转到数据分析或策略分析方向；也想确认自己是否适合继续读商科。";
-  qs("#targetDirectionInput").value = "数据分析、策略分析、品牌公关";
-  qs("#anxietyInput").value = "担心简历看起来分散，不知道哪些经历能转化成可被招聘方理解的能力。";
-  qs("#resumeText").value = sampleResume;
-  qs("#resumeFile").value = "";
-  state.uploadedFile = null;
-  state.extractedResumeText = "";
-  qs("#fileStatus").textContent = "已填入样例文本。";
-  persistDraft();
-  showToast("样例已填入");
 }
 
 function clearAll() {
@@ -1239,8 +1205,10 @@ function clearAll() {
   qs("#chatDock").classList.add("collapsed");
   qs("#chatToggleBtn").textContent = "展开";
   updateNextStepEntry();
-  localStorage.removeItem(storageKey);
-  localStorage.removeItem(analysisStorageKey);
+  sessionStorage.removeItem(storageKey);
+  sessionStorage.removeItem(analysisStorageKey);
+  sessionStorage.removeItem("resume_partner_application_draft");
+  sessionStorage.removeItem("resume_partner_qa_draft");
   openIntakeModal();
   showToast("已清空");
 }
@@ -1248,7 +1216,6 @@ function clearAll() {
 function bindEvents() {
   qs("#resumeFile").addEventListener("change", handleFileSelect);
   qs("#analyzeBtn").addEventListener("click", analyze);
-  qs("#sampleBtn").addEventListener("click", fillSample);
   qs("#clearBtn").addEventListener("click", clearAll);
   qs("#exportBtn").addEventListener("click", exportJson);
   qs("#authBtn").addEventListener("click", () => openAuthModal("login"));
@@ -1301,11 +1268,10 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
-  restoreDraft();
   setAuthMode("login");
   renderAuthState();
   renderHistoryList();
-  if (!restoreAnalysis()) {
+  if (!(window.location.hash === "#overviewReport" && restoreAnalysis())) {
     setChatAvailable(false);
     updateNextStepEntry();
     openIntakeModal();

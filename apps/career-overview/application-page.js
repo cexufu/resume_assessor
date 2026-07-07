@@ -38,15 +38,15 @@ function showToast(message) {
 
 function readJsonStorage(key) {
   try {
-    return JSON.parse(localStorage.getItem(key) || "null");
+    return JSON.parse(sessionStorage.getItem(key) || "null");
   } catch {
-    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
     return null;
   }
 }
 
 function writeJsonStorage(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
+  sessionStorage.setItem(key, JSON.stringify(value));
 }
 
 function buildDraftFromProfile(saved) {

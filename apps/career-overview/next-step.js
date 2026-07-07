@@ -31,9 +31,9 @@ function showToast(message) {
 
 function readSavedAnalysis() {
   try {
-    return JSON.parse(localStorage.getItem(analysisStorageKey) || "null");
+    return JSON.parse(sessionStorage.getItem(analysisStorageKey) || "null");
   } catch {
-    localStorage.removeItem(analysisStorageKey);
+    sessionStorage.removeItem(analysisStorageKey);
     return null;
   }
 }
@@ -71,16 +71,16 @@ function createApplicationDraft(saved) {
       skills: [item?.name, skills[index]?.name].filter(Boolean),
     })),
   };
-  localStorage.setItem(applicationDraftStorageKey, JSON.stringify(draft));
+  sessionStorage.setItem(applicationDraftStorageKey, JSON.stringify(draft));
   return draft;
 }
 
 function ensureApplicationDraft(saved) {
   try {
-    const existing = JSON.parse(localStorage.getItem(applicationDraftStorageKey) || "null");
+    const existing = JSON.parse(sessionStorage.getItem(applicationDraftStorageKey) || "null");
     if (existing && typeof existing === "object") return existing;
   } catch {
-    localStorage.removeItem(applicationDraftStorageKey);
+    sessionStorage.removeItem(applicationDraftStorageKey);
   }
   return createApplicationDraft(saved);
 }
@@ -91,8 +91,8 @@ async function prepareApplicationDraft(saved) {
       careerProfile: saved.careerProfile,
       extractedResumeText: saved.extractedResumeText || "",
     });
-    localStorage.setItem(applicationDraftStorageKey, JSON.stringify(report));
-    localStorage.removeItem(qaDraftStorageKey);
+    sessionStorage.setItem(applicationDraftStorageKey, JSON.stringify(report));
+    sessionStorage.removeItem(qaDraftStorageKey);
     return report;
   } catch {
     return ensureApplicationDraft(saved);

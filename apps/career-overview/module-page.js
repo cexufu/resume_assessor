@@ -94,9 +94,9 @@ function setPromptChipsDisabled(isDisabled) {
 
 function loadAnalysis() {
   try {
-    state.analysis = JSON.parse(localStorage.getItem(storageKey) || "null");
+    state.analysis = JSON.parse(sessionStorage.getItem(storageKey) || "null");
   } catch {
-    localStorage.removeItem(storageKey);
+    sessionStorage.removeItem(storageKey);
     state.analysis = null;
   }
 }
