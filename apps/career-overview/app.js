@@ -239,6 +239,14 @@ function renderAuthState() {
   }
 }
 
+function updateNextStepEntry() {
+  const hasProfile = Boolean(state.careerProfile);
+  const topLink = qs("#nextStepTopLink");
+  const section = qs("#nextStepSection");
+  if (topLink) topLink.hidden = !hasProfile;
+  if (section) section.hidden = !hasProfile || !state.report;
+}
+
 function setBusy(isBusy) {
   state.isAnalyzing = isBusy;
   qs("#analyzeBtn").disabled = isBusy;
@@ -752,6 +760,7 @@ function showErrorState(message) {
   setChatAvailable(false);
   qs("#chatDock").classList.add("collapsed");
   qs("#chatToggleBtn").textContent = "展开";
+  updateNextStepEntry();
   showToast(message);
 }
 
@@ -760,8 +769,9 @@ function showPartialState(message, options = {}) {
   qs("#emptyState").hidden = false;
   qs("#emptyState").innerHTML = `
     <strong>已保留职业画像</strong>
-    <p>首页总览这次没有达到稳定输出标准，所以不展示泛泛结论。你的简历画像已经保留，可以直接进入深度子页面继续分析。</p>
+    <p>首页总览这次没有达到稳定输出标准，所以不展示泛泛结论。你的简历画像已经保留，可以直接进入下一程，也可以继续进入分析子页面。</p>
     <div class="recovery-actions">
+      <a class="primary-link" href="./next-step.html">进入下一程</a>
       <a class="primary-link" href="./career.html">去职业方向</a>
       <a class="ghost-link" href="./study.html">去留学专业</a>
       <a class="ghost-link" href="./ability.html">去能力地图</a>
@@ -773,6 +783,7 @@ function showPartialState(message, options = {}) {
   setChatAvailable(false);
   qs("#chatDock").classList.add("collapsed");
   qs("#chatToggleBtn").textContent = "展开";
+  updateNextStepEntry();
   if (!options.silent) showToast("已保留职业画像");
 }
 
@@ -799,6 +810,7 @@ function renderReport(report) {
   renderShortcomings(report.shortcomings || {});
   renderImprovementAdvice(report.improvementAdvice || {});
   renderModuleRecommendations(report.moduleRecommendations);
+  updateNextStepEntry();
 
   const visibleSections = document.querySelectorAll("#reportContent .result-section:not([hidden])").length;
   if (!visibleSections) {
@@ -1168,6 +1180,7 @@ function restoreAnalysis() {
     if (state.report) {
       renderReport(state.report);
       resetChatPanel();
+      updateNextStepEntry();
       if (window.location.hash === "#overviewReport") {
         window.requestAnimationFrame(() => qs("#overviewReport")?.scrollIntoView({ block: "start" }));
       }
@@ -1175,6 +1188,7 @@ function restoreAnalysis() {
     }
 
     showPartialState(saved.error || "已保留职业画像。", { silent: true });
+    updateNextStepEntry();
     return true;
   } catch {
     localStorage.removeItem(analysisStorageKey);
@@ -1224,6 +1238,7 @@ function clearAll() {
   setChatAvailable(false);
   qs("#chatDock").classList.add("collapsed");
   qs("#chatToggleBtn").textContent = "展开";
+  updateNextStepEntry();
   localStorage.removeItem(storageKey);
   localStorage.removeItem(analysisStorageKey);
   openIntakeModal();
@@ -1292,6 +1307,7 @@ async function init() {
   renderHistoryList();
   if (!restoreAnalysis()) {
     setChatAvailable(false);
+    updateNextStepEntry();
     openIntakeModal();
   }
   await refreshCurrentUser();

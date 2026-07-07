@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resume Partner | 下一程</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">RP</span>
+          <div>
+            <h1>下一程</h1>
+            <p>看见自己之后，下一程才刚刚开始</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="ghost-link" href="./index.html#overviewReport">返回总结果页</a>
+          <span class="status-pill" id="apiStatus">检查 DeepSeek</span>
+        </div>
+      </header>
+
+      <main class="result-workspace journey-page">
+        <section class="journey-hero">
+          <span class="eyebrow">Next step</span>
+          <h2>你的故事，不该停在被看见</h2>
+          <p>我们已经读过你的来时路。接下来，一起把它整理成会陪你走向未来的资料与答案。你不用一次完成所有准备，先走最想开始的那一步。</p>
+        </section>
+
+        <section class="result-section">
+          <div class="section-title">
+            <span>1</span>
+            <h3>你已经被看见</h3>
+          </div>
+          <div class="journey-summary" id="journeySummary"></div>
+        </section>
+
+        <section class="result-section">
+          <div class="section-title">
+            <span>2</span>
+            <h3>你可以从这里继续</h3>
+          </div>
+          <div class="deepen-grid">
+            <article class="deepen-card">
+              <span class="deepen-card-label">资料</span>
+              <h3>把经历整理成未来会反复用到的底稿</h3>
+              <p>今天写下来的，不只是资料，也是你一次次走向机会时的自我介绍。</p>
+              <ul>
+                <li>整理教育、实习、项目与技能</li>
+                <li>沉淀申请时会反复调用的故事</li>
+                <li>为网申、留学和求职准备一份可编辑底稿</li>
+              </ul>
+              <a class="primary-link" href="./application.html">开始整理</a>
+            </article>
+
+            <article class="deepen-card">
+              <span class="deepen-card-label">问答</span>
+              <h3>让那些难回答的问题，慢慢长成你的答案</h3>
+              <p>不是替你说话，而是帮你把真实经历慢慢组织出来，变成更像你的回答。</p>
+              <ul>
+                <li>Why role / Why company / Why major</li>
+                <li>自我介绍、优势、挑战、转折故事</li>
+                <li>精简版回答与展开版回答并存</li>
+              </ul>
+              <a class="primary-link" href="./qa.html">开始作答</a>
+            </article>
+          </div>
+        </section>
+
+        <section class="result-section">
+          <div class="section-title">
+            <span>3</span>
+            <h3>继续理解自己</h3>
+          </div>
+          <div class="secondary-links">
+            <a class="ghost-link" href="./career.html">职业方向分析</a>
+            <a class="ghost-link" href="./study.html">留学与专业推荐</a>
+            <a class="ghost-link" href="./ability.html">能力地图</a>
+          </div>
+        </section>
+
+        <section class="result-section" id="journeyFallback" hidden>
+          <div class="section-title">
+            <span>0</span>
+            <h3>还没有职业画像</h3>
+          </div>
+          <p class="lead-text">请先回到总结果页完成简历分析。只有先看见自己，后面的资料与答案才会真正像你。</p>
+          <a class="primary-link" href="./index.html">返回首页</a>
+        </section>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script src="./ai-client.js"></script>
+    <script src="./next-step.js"></script>
+  </body>
+  </html>

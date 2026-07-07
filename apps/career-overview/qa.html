@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resume Partner | 问答工作台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">RP</span>
+          <div>
+            <h1>问答工作台</h1>
+            <p>让那些难回答的问题，长成更像你的答案</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a class="ghost-link" href="./next-step.html">返回下一程</a>
+          <a class="ghost-link" href="./index.html#overviewReport">返回总结果页</a>
+          <span class="chat-status" id="qaStatus">等待开始</span>
+        </div>
+      </header>
+
+      <main class="result-workspace journey-page">
+        <section class="journey-hero">
+          <span class="eyebrow">Answer studio</span>
+          <h2>那些说不清的问题，也可以慢慢长成答案</h2>
+          <p>这里先不追求一次写完，而是先找到回答主轴、可用证据和更像你的表达方式。你可以从模板问题开始，也可以带着具体目标来问。</p>
+        </section>
+
+        <section class="result-section">
+          <div class="section-title">
+            <span>1</span>
+            <h3>先选一个问题开始</h3>
+          </div>
+          <div class="prompt-chips" id="qaTemplateChips"></div>
+        </section>
+
+        <section class="result-section">
+          <div class="section-title">
+            <span>2</span>
+            <h3>补充这一题的上下文</h3>
+          </div>
+          <div class="qa-form-grid">
+            <label class="field">
+              <span>公司 / 学校</span>
+              <input id="qaTargetOrgInput" type="text" maxlength="120" placeholder="例如：字节跳动 / UCL" />
+            </label>
+            <label class="field">
+              <span>岗位 / 专业</span>
+              <input id="qaTargetRoleInput" type="text" maxlength="120" placeholder="例如：数据分析实习 / 商业分析" />
+            </label>
+            <label class="field">
+              <span>回答风格</span>
+              <select id="qaToneInput">
+                <option value="真诚简洁">真诚简洁</option>
+                <option value="正式清楚">正式清楚</option>
+                <option value="面试口语化">面试口语化</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>字数要求</span>
+              <input id="qaLengthInput" type="text" maxlength="80" placeholder="例如：150 字以内 / 1 分钟口语" />
+            </label>
+            <label class="field wide">
+              <span>补充说明</span>
+              <textarea id="qaExtraInput" class="compact-textarea" maxlength="800" placeholder="例如：我担心自己没有直接相关经历，想回答得更自然一点。"></textarea>
+            </label>
+          </div>
+          <div class="button-row">
+            <button class="primary-button" id="generateQaBtn" type="button">生成回答</button>
+          </div>
+        </section>
+
+        <section class="result-section">
+          <div class="section-title">
+            <span>3</span>
+            <h3>回答草稿</h3>
+          </div>
+          <p class="qa-status-line" id="qaModeLine" hidden></p>
+          <div class="qa-output-grid" id="qaOutputGrid">
+            <article class="qa-output-card">
+              <h3>还没有开始</h3>
+              <p>先选一个问题。这里会先给你回答主轴，再给你精简版与展开版答案。</p>
+            </article>
+          </div>
+          <div class="qa-refine-actions" id="qaRefineActions" hidden>
+            <button class="qa-refine-chip" type="button" data-refine="更口语一点">更口语一点</button>
+            <button class="qa-refine-chip" type="button" data-refine="更正式一点">更正式一点</button>
+            <button class="qa-refine-chip" type="button" data-refine="更简短一点">更简短一点</button>
+            <button class="qa-refine-chip" type="button" data-refine="换一个角度">换一个角度</button>
+          </div>
+        </section>
+
+        <section class="result-section" id="qaFallback" hidden>
+          <div class="section-title">
+            <span>0</span>
+            <h3>还没有职业画像与故事底稿</h3>
+          </div>
+          <p class="lead-text">请先完成简历分析，并先进入申请资料中心沉淀底稿。这样后面的回答，才会更像你自己。</p>
+          <div class="secondary-links">
+            <a class="primary-link" href="./application.html">先去整理资料</a>
+            <a class="ghost-link" href="./index.html">返回首页</a>
+          </div>
+        </section>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script src="./ai-client.js"></script>
+    <script src="./qa-page.js"></script>
+  </body>
+  </html>

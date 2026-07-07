@@ -50,6 +50,8 @@ const PROFILE_MAX_TOKENS = Number(process.env.PROFILE_MAX_TOKENS || 1100);
 const OVERVIEW_MAX_TOKENS = Number(process.env.OVERVIEW_MAX_TOKENS || 1300);
 const MODULE_MAX_TOKENS = Number(process.env.MODULE_MAX_TOKENS || 1900);
 const CHAT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS || 420);
+const APPLICATION_MAX_TOKENS = Number(process.env.APPLICATION_MAX_TOKENS || 1100);
+const QA_MAX_TOKENS = Number(process.env.QA_MAX_TOKENS || 720);
 const JSON_REPAIR_MAX_TOKENS = Number(process.env.JSON_REPAIR_MAX_TOKENS || 1200);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 12_000_000);
 const MAX_RESUME_TEXT_CHARS = Number(process.env.MAX_RESUME_TEXT_CHARS || 12_000);
@@ -891,6 +893,49 @@ const moduleJsonContracts = {
   ].join("\n"),
 };
 
+const applicationSystemPrompt = [
+  "你是申请资料整理器。",
+  "你只基于 career_profile 生成一份可编辑、可复用的申请底稿。",
+  "不要重复输出职业分析报告，不要空泛鼓励。",
+  "重点是把经历压缩成结构化资料与 story_bank，供网申、留学申请和问答工作台复用。",
+  "所有字段使用中文，短句，避免冗长段落。",
+  careerJudgmentPrinciples,
+  jsonOnlyContract,
+].join("\n");
+
+const applicationJsonContract = [
+  "JSON 顶层字段必须为：basicProfile, experienceEntries, storyBank, applicationHints。",
+  "basicProfile 字段：educationStage, major, targetGoal, targetDirection, currentThought, anxiety, region, age。",
+  "experienceEntries 最多 6 项，每项字段：id, title, evidence, polished, tags。",
+  "storyBank 最多 8 项，每项字段：id, title, situation, task, action, result, skills。",
+  "applicationHints 字段：summary, priorityModules, missingProof。",
+  "priorityModules 最多 4 条，说明用户接下来最该先整理哪几块资料。",
+  "missingProof 最多 4 条，说明这份底稿还缺什么关键证据。",
+  "evidence、polished、situation、task、action、result 都必须短，不超过 90 个中文字符。",
+  "storyBank 要尽量和真实经历强关联，不要虚构故事。",
+].join("\n");
+
+const qaStudioSystemPrompt = [
+  "你是问答工作台生成器。",
+  "你只基于 career_profile、application_draft、当前问题和目标上下文，生成一份简洁、专业、像用户自己的回答草稿。",
+  "不要写成长报告，不要泛泛夸奖，不要虚构经历。",
+  "先判断回答主轴，再选 2-3 条最相关证据，然后分别给精简版与展开版回答。",
+  "没有足够证据时，要如实说明，而不是编造。",
+  "回答长度要克制，适合求职或留学申请中的单题场景。",
+  careerJudgmentPrinciples,
+  jsonOnlyContract,
+].join("\n");
+
+const qaStudioJsonContract = [
+  "JSON 顶层字段必须为：mainAxis, evidenceLines, shortAnswer, longAnswer, followUpPrompt.",
+  "mainAxis：1-2 句，说明这题应该怎么答。",
+  "evidenceLines：2-3 条短句，每条说明一条最相关证据；证据不足时也要说明缺什么。",
+  "shortAnswer：1 段，适合面试口语表达，控制在 120-220 个中文字符。",
+  "longAnswer：1 段，适合网申或书面表达，控制在 180-320 个中文字符。",
+  "followUpPrompt：1 句，提醒用户下一步最值得补哪类信息或追问什么。",
+  "不要输出 markdown，不要输出表格。",
+].join("\n");
+
 const resumeChatSystemPrompt = [
   "你是一个专业、克制的简历追问助手。",
   "你只能基于用户提供的 career_profile、前置分析和最近对话回答。",
@@ -1182,6 +1227,77 @@ function buildModulePrompt(moduleType, careerProfile, moduleInput) {
     "",
     "库候选项：",
     JSON.stringify(libraryContext, null, 2),
+  ].join("\n");
+}
+
+function normalizeApplicationDraft(rawDraft = {}) {
+  const draft = rawDraft && typeof rawDraft === "object" ? rawDraft : {};
+  const basicProfile = draft.basicProfile && typeof draft.basicProfile === "object" ? draft.basicProfile : {};
+  const experienceEntries = Array.isArray(draft.experienceEntries) ? draft.experienceEntries : [];
+  const storyBank = Array.isArray(draft.storyBank) ? draft.storyBank : [];
+  return {
+    basicProfile: {
+      educationStage: normalizeText(basicProfile.educationStage, 80),
+      major: normalizeText(basicProfile.major, 80),
+      targetGoal: normalizeText(basicProfile.targetGoal, 80),
+      targetDirection: normalizeText(basicProfile.targetDirection, 120),
+      currentThought: normalizeText(basicProfile.currentThought, 280),
+      anxiety: normalizeText(basicProfile.anxiety, 240),
+      region: normalizeText(basicProfile.region, 80),
+      age: normalizeText(basicProfile.age, 12),
+    },
+    experienceEntries: experienceEntries.slice(0, 8).map((item, index) => ({
+      id: normalizeText(item?.id, 40) || `exp_${index + 1}`,
+      title: normalizeText(item?.title, 120),
+      evidence: normalizeText(item?.evidence, 240),
+      polished: normalizeText(item?.polished, 240),
+      tags: Array.isArray(item?.tags) ? item.tags.map((tag) => normalizeText(tag, 40)).filter(Boolean).slice(0, 4) : [],
+    })),
+    storyBank: storyBank.slice(0, 10).map((item, index) => ({
+      id: normalizeText(item?.id, 40) || `story_${index + 1}`,
+      title: normalizeText(item?.title, 120),
+      situation: normalizeText(item?.situation, 240),
+      task: normalizeText(item?.task, 180),
+      action: normalizeText(item?.action, 240),
+      result: normalizeText(item?.result, 240),
+      skills: Array.isArray(item?.skills) ? item.skills.map((tag) => normalizeText(tag, 40)).filter(Boolean).slice(0, 5) : [],
+    })),
+  };
+}
+
+function buildApplicationPrompt(careerProfile) {
+  return [
+    "请把 career_profile 整理成申请资料底稿 JSON。",
+    "不要重复输出职业分析，只做资料整理。",
+    "",
+    "career_profile：",
+    stringifyCompact(careerProfile),
+  ].join("\n");
+}
+
+function buildQaStudioPrompt(payload) {
+  const target = payload.targetContext && typeof payload.targetContext === "object" ? payload.targetContext : {};
+  return [
+    "请基于下面材料，生成单题回答草稿 JSON。",
+    "只回答这一题，不要写成长报告。",
+    "",
+    "career_profile：",
+    stringifyCompact(payload.careerProfile),
+    "",
+    "application_draft：",
+    stringifyCompact(normalizeApplicationDraft(payload.applicationDraft), 5200),
+    "",
+    "当前问题：",
+    normalizeText(payload.question, 240),
+    "",
+    "目标上下文：",
+    JSON.stringify({
+      targetOrganization: normalizeText(target.targetOrganization, 120),
+      targetRole: normalizeText(target.targetRole, 120),
+      tone: normalizeText(target.tone, 40),
+      answerLength: normalizeText(target.answerLength, 60),
+      extraContext: normalizeText(target.extraContext, 280),
+    }, null, 2),
   ].join("\n");
 }
 
@@ -2711,6 +2827,182 @@ async function createModuleReport(moduleType, careerProfile, moduleInput) {
   return ensureModuleFields(moduleType, report, careerProfile, moduleInput);
 }
 
+function buildDeterministicApplicationDraft(careerProfile) {
+  const safeProfile = careerProfile && typeof careerProfile === "object" ? careerProfile : {};
+  const basic = safeProfile.basic || {};
+  const experiences = Array.isArray(safeProfile.experienceSummary) ? safeProfile.experienceSummary : [];
+  const strengths = Array.isArray(safeProfile.strengths) ? safeProfile.strengths : [];
+  const skills = Array.isArray(safeProfile.skills) ? safeProfile.skills : [];
+  const draft = {
+    basicProfile: {
+      educationStage: normalizeText(basic.educationStage, 80),
+      major: normalizeText(basic.major, 80),
+      targetGoal: normalizeText(basic.targetGoal, 80),
+      targetDirection: normalizeText(basic.targetDirection, 120),
+      currentThought: normalizeText(basic.currentThought, 280),
+      anxiety: normalizeText(basic.anxiety, 240),
+      region: normalizeText(basic.region, 80),
+      age: normalizeText(basic.age, 12),
+    },
+    experienceEntries: experiences.slice(0, 6).map((item, index) => ({
+      id: `exp_${index + 1}`,
+      title: normalizeText(item?.title, 120) || `经历 ${index + 1}`,
+      evidence: normalizeText(item?.evidence, 200),
+      polished: normalizeText(item?.evidence, 200),
+      tags: uniqueNonEmpty([
+        normalizeText(skills[index]?.name, 40),
+        normalizeText(strengths[index]?.name, 40),
+      ], 3),
+    })),
+    storyBank: strengths.slice(0, 6).map((item, index) => ({
+      id: `story_${index + 1}`,
+      title: normalizeText(item?.name, 120) || `故事 ${index + 1}`,
+      situation: normalizeText(item?.evidence, 200),
+      task: normalizeText(item?.evidence, 180),
+      action: normalizeText(item?.evidence, 200),
+      result: normalizeText(item?.evidence, 200),
+      skills: uniqueNonEmpty([
+        normalizeText(item?.name, 40),
+        normalizeText(skills[index]?.name, 40),
+      ], 4),
+    })),
+    applicationHints: {
+      summary: "这是一版根据职业画像压缩出的申请底稿，适合先整理，再继续补细节。",
+      priorityModules: uniqueNonEmpty([
+        "先整理 1-2 段最能代表你的经历。",
+        "把目标方向写得更具体，后面的表达会更稳。",
+        "补一个能说明个人贡献和结果变化的项目故事。",
+        "先把故事库里的场景、动作、结果写完整。",
+      ], 4),
+      missingProof: uniqueNonEmpty(Array.isArray(safeProfile.missingInformation) ? safeProfile.missingInformation : [], 4),
+    },
+    meta: {
+      mode: "deterministic_local",
+      generatedAt: new Date().toISOString(),
+    },
+  };
+  return draft;
+}
+
+function ensureApplicationDraftFields(draft, careerProfile) {
+  const fallback = buildDeterministicApplicationDraft(careerProfile);
+  const safeDraft = draft && typeof draft === "object" ? draft : {};
+  safeDraft.basicProfile = safeDraft.basicProfile && typeof safeDraft.basicProfile === "object" ? safeDraft.basicProfile : fallback.basicProfile;
+  safeDraft.experienceEntries = Array.isArray(safeDraft.experienceEntries) && safeDraft.experienceEntries.length
+    ? safeDraft.experienceEntries.slice(0, 6)
+    : fallback.experienceEntries;
+  safeDraft.storyBank = Array.isArray(safeDraft.storyBank) && safeDraft.storyBank.length
+    ? safeDraft.storyBank.slice(0, 8)
+    : fallback.storyBank;
+  safeDraft.applicationHints = safeDraft.applicationHints && typeof safeDraft.applicationHints === "object"
+    ? safeDraft.applicationHints
+    : fallback.applicationHints;
+  if (!isUsefulTextValue(safeDraft.applicationHints.summary)) {
+    safeDraft.applicationHints.summary = fallback.applicationHints.summary;
+  }
+  safeDraft.applicationHints.priorityModules = Array.isArray(safeDraft.applicationHints.priorityModules) && safeDraft.applicationHints.priorityModules.length
+    ? safeDraft.applicationHints.priorityModules.filter(isUsefulTextValue).slice(0, 4)
+    : fallback.applicationHints.priorityModules;
+  safeDraft.applicationHints.missingProof = Array.isArray(safeDraft.applicationHints.missingProof) && safeDraft.applicationHints.missingProof.length
+    ? safeDraft.applicationHints.missingProof.filter(isUsefulTextValue).slice(0, 4)
+    : fallback.applicationHints.missingProof;
+  safeDraft.meta = {
+    ...(safeDraft.meta || {}),
+    generatedAt: new Date().toISOString(),
+  };
+  return safeDraft;
+}
+
+async function createApplicationDraftReport(careerProfile) {
+  const report = await callDeepSeekJson(buildJsonCompletionBody({
+    systemPrompt: applicationSystemPrompt,
+    contract: applicationJsonContract,
+    userPrompt: buildApplicationPrompt(careerProfile),
+    maxTokens: APPLICATION_MAX_TOKENS,
+    temperature: 0.15,
+  }));
+  return ensureApplicationDraftFields(report, careerProfile);
+}
+
+function pickQaEvidenceStories(applicationDraft, question, targetContext = {}) {
+  const stories = Array.isArray(applicationDraft?.storyBank) ? applicationDraft.storyBank : [];
+  const haystack = [
+    question,
+    targetContext?.targetRole,
+    targetContext?.targetOrganization,
+    targetContext?.extraContext,
+  ].map((item) => normalizeText(item, 240).toLowerCase()).join(" ");
+  const ranked = stories.map((story) => {
+    const storyText = [
+      story?.title,
+      story?.situation,
+      story?.task,
+      story?.action,
+      story?.result,
+      ...(Array.isArray(story?.skills) ? story.skills : []),
+    ].join(" ").toLowerCase();
+    let score = 0;
+    for (const token of haystack.split(/\s+/).filter(Boolean)) {
+      if (token && storyText.includes(token)) score += token.length >= 3 ? 3 : 1;
+    }
+    return { story, score };
+  }).sort((a, b) => b.score - a.score);
+  return ranked.slice(0, 3).map((item) => item.story);
+}
+
+function buildDeterministicQaReport(payload) {
+  const target = payload.targetContext && typeof payload.targetContext === "object" ? payload.targetContext : {};
+  const applicationDraft = normalizeApplicationDraft(payload.applicationDraft);
+  const stories = pickQaEvidenceStories(applicationDraft, payload.question, target);
+  const role = normalizeText(target.targetRole, 120) || normalizeText(payload.careerProfile?.basic?.targetDirection, 120) || "这个方向";
+  const org = normalizeText(target.targetOrganization, 120) || "目标机构";
+  const tone = normalizeText(target.tone, 40) || "真诚简洁";
+  const evidenceLines = stories.length
+    ? stories.map((story) => `${story.title || "相关经历"}：${pickUsefulText([story.result, story.action, story.situation], "这条证据还需要你补一点事实细节。")}`)
+    : ["当前故事库还不够，建议先补 1-2 条能说明个人贡献和结果的经历。"];
+  return {
+    mainAxis: `这题不要从空泛热情开始，而要从“我过去积累了什么能力，以及它为什么自然指向${role}”开始。`,
+    evidenceLines,
+    shortAnswer: `我之所以想走向${role}，不是因为一个临时决定，而是因为我过去的经历一直在往这个方向积累能力。${stories[0]?.title ? `像“${stories[0].title}”这段经历，就让我更清楚自己适合在复杂信息里做判断、推进和表达。` : "现在最大的任务，是先把能证明自己的经历整理得更完整。"} 如果接下来真的进入${org}这样的场景，我也希望把这些能力放进更明确的问题里继续成长。`,
+    longAnswer: `如果让我完整回答这个问题，我会这样展开：第一，我过去的经历并不是分散的，它们一直在积累与${role}相关的能力。第二，这些能力和这个方向要解决的问题是相关的。第三，我不是只想“试试看”，而是已经从过往的项目或经历里，看到了自己在这个方向上的适配感。现在如果面对${org}这样的目标，我会把表达收成更${tone}的方式，并且尽量用真实经历去支撑，而不是只讲抽象兴趣。`,
+    followUpPrompt: stories.length
+      ? "下一步最值得补的是把其中一条经历拆成更完整的 STAR 结构。"
+      : "下一步先去申请资料中心补 1-2 条故事，再回来生成会更像你自己的答案。",
+    meta: {
+      mode: "deterministic_local",
+      generatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function ensureQaStudioFields(report, payload) {
+  const fallback = buildDeterministicQaReport(payload);
+  const safeReport = report && typeof report === "object" ? report : {};
+  if (!isUsefulTextValue(safeReport.mainAxis)) safeReport.mainAxis = fallback.mainAxis;
+  safeReport.evidenceLines = Array.isArray(safeReport.evidenceLines) && safeReport.evidenceLines.length
+    ? safeReport.evidenceLines.filter(isUsefulTextValue).slice(0, 3)
+    : fallback.evidenceLines;
+  if (!isUsefulTextValue(safeReport.shortAnswer)) safeReport.shortAnswer = fallback.shortAnswer;
+  if (!isUsefulTextValue(safeReport.longAnswer)) safeReport.longAnswer = fallback.longAnswer;
+  if (!isUsefulTextValue(safeReport.followUpPrompt)) safeReport.followUpPrompt = fallback.followUpPrompt;
+  safeReport.meta = {
+    ...(safeReport.meta || {}),
+    generatedAt: new Date().toISOString(),
+  };
+  return safeReport;
+}
+
+async function createQaStudioReport(payload) {
+  const report = await callDeepSeekJson(buildJsonCompletionBody({
+    systemPrompt: qaStudioSystemPrompt,
+    contract: qaStudioJsonContract,
+    userPrompt: buildQaStudioPrompt(payload),
+    maxTokens: QA_MAX_TOKENS,
+    temperature: 0.2,
+  }));
+  return ensureQaStudioFields(report, payload);
+}
+
 async function streamDeepSeekChat(payload, res) {
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: "POST",
@@ -3294,6 +3586,120 @@ async function handleResumeChat(req, res) {
   }
 }
 
+async function handleCreateApplicationDraft(req, res) {
+  try {
+    const payload = await readJson(req);
+    if (!payload.careerProfile || typeof payload.careerProfile !== "object") {
+      sendJson(res, 400, { error: "请先完成职业画像生成。" });
+      return;
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+      const localDraft = buildDeterministicApplicationDraft(payload.careerProfile);
+      sendJson(res, 200, {
+        ...localDraft,
+        meta: {
+          ...(localDraft.meta || {}),
+          provider: "local",
+          fallback: true,
+          reason: "missing_api_key",
+        },
+      });
+      return;
+    }
+
+    try {
+      const report = await createApplicationDraftReport(payload.careerProfile);
+      report.meta = {
+        ...(report.meta || {}),
+        mode: "ai",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        tokenBudget: {
+          applicationMaxTokens: APPLICATION_MAX_TOKENS,
+          profileMaxChars: MAX_PROFILE_JSON_CHARS,
+        },
+      };
+      sendJson(res, 200, report);
+    } catch (error) {
+      const localDraft = buildDeterministicApplicationDraft(payload.careerProfile);
+      sendJson(res, 200, {
+        ...localDraft,
+        meta: {
+          ...(localDraft.meta || {}),
+          provider: "local",
+          fallback: true,
+          reason: error.message,
+        },
+      });
+    }
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
+async function handleCreateQaDraft(req, res) {
+  try {
+    const payload = await readJson(req);
+    if (!payload.careerProfile || typeof payload.careerProfile !== "object") {
+      sendJson(res, 400, { error: "请先完成职业画像生成。" });
+      return;
+    }
+    if (!payload.applicationDraft || typeof payload.applicationDraft !== "object") {
+      sendJson(res, 400, { error: "请先生成申请资料底稿。" });
+      return;
+    }
+    if (!normalizeText(payload.question, 240)) {
+      sendJson(res, 400, { error: "请先选择或填写当前问题。" });
+      return;
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+      const localDraft = buildDeterministicQaReport(payload);
+      sendJson(res, 200, {
+        ...localDraft,
+        meta: {
+          ...(localDraft.meta || {}),
+          provider: "local",
+          fallback: true,
+          reason: "missing_api_key",
+        },
+      });
+      return;
+    }
+
+    try {
+      const report = await createQaStudioReport(payload);
+      report.meta = {
+        ...(report.meta || {}),
+        mode: "ai",
+        provider: "deepseek",
+        model: DEEPSEEK_MODEL,
+        baseUrl: DEEPSEEK_BASE_URL,
+        tokenBudget: {
+          qaMaxTokens: QA_MAX_TOKENS,
+          profileMaxChars: MAX_PROFILE_JSON_CHARS,
+        },
+      };
+      sendJson(res, 200, report);
+    } catch (error) {
+      const localDraft = buildDeterministicQaReport(payload);
+      sendJson(res, 200, {
+        ...localDraft,
+        meta: {
+          ...(localDraft.meta || {}),
+          provider: "local",
+          fallback: true,
+          reason: error.message,
+        },
+      });
+    }
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
 async function handleTestAi(req, res) {
   if (!DEEPSEEK_API_KEY) {
     sendJson(res, 500, { error: "DEEPSEEK_API_KEY is not configured on the local server." });
@@ -3630,6 +4036,16 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "POST" && req.url === "/api/create-overview-directions") {
     handleCreateOverviewDirections(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/create-application-draft") {
+    handleCreateApplicationDraft(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/create-qa-draft") {
+    handleCreateQaDraft(req, res);
     return;
   }
 

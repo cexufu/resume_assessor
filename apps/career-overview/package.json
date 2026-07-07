@@ -5,7 +5,7 @@
   "description": "A no-build AI career development overview MVP with a local Node.js API proxy.",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check app.js && node --check module-page.js && node --check ai-client.js"
+    "check": "node --check server.js && node --check app.js && node --check module-page.js && node --check ai-client.js && node --check next-step.js && node --check application-page.js && node --check qa-page.js"
   },
   "engines": {
     "node": ">=20"

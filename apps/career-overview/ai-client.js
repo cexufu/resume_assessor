@@ -1,15 +1,3 @@
-function sanitizeErrorMessage(text, status) {
-  const raw = String(text || "").trim();
-  if (!raw) return `请求失败${status ? `（${status}）` : ""}`;
-  if (/<!doctype html|<html[\s>]/i.test(raw)) {
-    if (status === 502) return "服务暂时不稳定，网关返回了 502。通常是上游 AI 服务超时或 Render 临时失败，请稍后重试。";
-    if (status === 504) return "服务响应超时，请稍后重试。";
-    if (status >= 500) return `服务暂时不可用（${status}），请稍后重试。`;
-    return "服务返回了非预期页面，请稍后重试。";
-  }
-  return raw.length > 300 ? `${raw.slice(0, 300)}...` : raw;
-}
-
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
     ...options,
@@ -24,11 +12,11 @@ async function requestJson(url, options = {}) {
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    data = { error: sanitizeErrorMessage(text, response.status), rawError: text };
+    data = { error: text };
   }
 
   if (!response.ok) {
-    const error = new Error(sanitizeErrorMessage(data.error || text, response.status) || `Request failed: ${response.status}`);
+    const error = new Error(data.error || `Request failed: ${response.status}`);
     error.status = response.status;
     error.data = data;
     throw error;
@@ -133,6 +121,22 @@ async function createOverviewDirections(payload) {
   });
 }
 
+async function createApplicationDraft(payload) {
+  return requestJson("/api/create-application-draft", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(50_000),
+  });
+}
+
+async function createQaDraft(payload) {
+  return requestJson("/api/create-qa-draft", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(50_000),
+  });
+}
+
 async function extractResumeText(file) {
   return requestJson("/api/extract-resume-text", {
     method: "POST",
@@ -209,6 +213,8 @@ window.ResumeInsightAPI = {
   createOverview,
   createOverviewDiagnosis,
   createOverviewDirections,
+  createApplicationDraft,
+  createQaDraft,
   analyzeModule,
   streamResumeChat,
 };
