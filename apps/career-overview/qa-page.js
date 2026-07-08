@@ -128,7 +128,6 @@ function buildOutput() {
         : "下一步先补一个能说明个人贡献和结果变化的案例。",
     },
   ];
-  const shortAnswer = `我之所以想走向 ${role}，不是因为一个临时决定，而是因为我在过去的经历里，已经反复积累了和这个方向相关的能力。${evidence[0]?.title ? `像 ${evidence[0].title} 这段经历，就让我更清楚自己适合在复杂信息里做判断、推进和表达。` : "我已经能看到一些方向，但还需要把证据整理得更完整。"} 现在再往前走，我希望把这些能力放进更明确的场景里，继续长成更稳定的专业能力。`;
   const longAnswer = `如果让我回答“${lead}”，我会这样展开：第一，我过去的经历并不是分散的，它们其实一直在积累某种一致的能力。第二，这些能力和 ${role} 需要解决的问题是相关的。第三，我并不是只想“试试看”，而是已经在过去的项目或经历里看到自己在这个方向上的适配感。${extra ? ` 另外，我也会特别注意：${extra}` : ""} 如果是面对 ${org} 这样的目标，我会把表达调整成更 ${tone} 的方式，并把篇幅控制在 ${length}。`;
   return {
     mainAxis,
@@ -136,7 +135,6 @@ function buildOutput() {
     pointBlocks,
     reinforcement: `如果面对 ${org} 这样的目标，我不会只讲兴趣，而会用真实经历说明自己为什么值得这个机会，以及接下来会怎么继续补强。`,
     evidenceLines,
-    shortAnswer,
     longAnswer,
     targetLine: `${basic.targetGoal || "当前目标"} · ${basic.targetDirection || role} · ${org}`,
   };
@@ -157,7 +155,6 @@ function normalizeQaOutput(output) {
       }))
       : fallback.pointBlocks,
     reinforcement: fallbackText(safeOutput.reinforcement, fallback.reinforcement),
-    shortAnswer: fallbackText(safeOutput.shortAnswer, fallback.shortAnswer),
     longAnswer: fallbackText(safeOutput.longAnswer, fallback.longAnswer),
     followUpPrompt: fallbackText(safeOutput.followUpPrompt, "继续补证据，再回来改这一题。"),
     meta: safeOutput.meta || {},
@@ -199,10 +196,6 @@ function renderOutput(output) {
       `).join("")}
     </article>
     <article class="qa-output-card">
-      <h3>精简版回答</h3>
-      <p>${escapeHtml(normalized.shortAnswer)}</p>
-    </article>
-    <article class="qa-output-card">
       <h3>展开版回答</h3>
       <p>${escapeHtml(normalized.longAnswer)}</p>
     </article>
@@ -223,7 +216,6 @@ function regenerateWithRefine(refineLabel) {
     "更简短一点": " 我会保留主轴，但去掉多余铺垫。",
     "换一个角度": " 我会从成长动机和长期方向的角度再说一次。",
   };
-  state.lastOutput.shortAnswer += suffixMap[refineLabel] || "";
   state.lastOutput.longAnswer += suffixMap[refineLabel] || "";
   renderOutput(state.lastOutput);
   showToast(`已按“${refineLabel}”调整`);

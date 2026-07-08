@@ -931,13 +931,12 @@ const qaStudioSystemPrompt = [
 ].join("\n");
 
 const qaStudioJsonContract = [
-  "JSON 顶层字段必须为：mainAxis, opening, pointBlocks, reinforcement, shortAnswer, longAnswer, followUpPrompt.",
+  "JSON 顶层字段必须为：mainAxis, opening, pointBlocks, reinforcement, longAnswer, followUpPrompt.",
   "mainAxis：1-2 句，说明这题应该怎么答。",
   "opening：1 段，用正言先给出确定性回答，控制在 30-90 个中文字符。",
   "pointBlocks：2-3 项，每项字段：heading, point, evidence。heading 优先围绕“我想要什么 / 为什么想要 / 我怎么能要 / 我接下来怎么补”组织。",
   "pointBlocks.evidence 必须引用 application_draft 或 career_profile 中真实经历；证据不足时要如实说明缺什么。",
   "reinforcement：1 段，用来收束和强化匹配度、成长动机或下一步决心，控制在 30-90 个中文字符。",
-  "shortAnswer：1 段，适合面试口语表达，控制在 120-220 个中文字符。",
   "longAnswer：1 段，适合网申或书面表达，控制在 180-320 个中文字符。",
   "followUpPrompt：1 句，提醒用户下一步最值得补哪类信息或追问什么。",
   "不要输出 markdown，不要输出表格。",
@@ -3261,7 +3260,6 @@ function buildDeterministicQaReport(payload) {
     pointBlocks,
     reinforcement: `如果面对${org}这样的目标，我不会只讲兴趣，而会用真实经历证明自己为什么值得这个机会，并继续把证据补得更完整。`,
     evidenceLines,
-    shortAnswer: `我之所以想走向${role}，不是因为一个临时决定，而是因为我过去的经历一直在往这个方向积累能力。${stories[0]?.title ? `像“${stories[0].title}”这段经历，就让我更清楚自己适合在复杂信息里做判断、推进和表达。` : "现在最大的任务，是先把能证明自己的经历整理得更完整。"} 如果接下来真的进入${org}这样的场景，我也希望把这些能力放进更明确的问题里继续成长。`,
     longAnswer: `如果让我完整回答这个问题，我会这样展开：第一，我过去的经历并不是分散的，它们一直在积累与${role}相关的能力。第二，这些能力和这个方向要解决的问题是相关的。第三，我不是只想“试试看”，而是已经从过往的项目或经历里，看到了自己在这个方向上的适配感。现在如果面对${org}这样的目标，我会把表达收成更${tone}的方式，并且尽量用真实经历去支撑，而不是只讲抽象兴趣。`,
     followUpPrompt: stories.length
       ? "下一步最值得补的是把其中一条经历拆成更完整的 STAR 结构。"
@@ -3289,7 +3287,6 @@ function ensureQaStudioFields(report, payload) {
   safeReport.evidenceLines = Array.isArray(safeReport.evidenceLines) && safeReport.evidenceLines.length
     ? safeReport.evidenceLines.filter(isUsefulTextValue).slice(0, 3)
     : fallback.evidenceLines;
-  if (!isUsefulTextValue(safeReport.shortAnswer)) safeReport.shortAnswer = fallback.shortAnswer;
   if (!isUsefulTextValue(safeReport.longAnswer)) safeReport.longAnswer = fallback.longAnswer;
   if (!isUsefulTextValue(safeReport.followUpPrompt)) safeReport.followUpPrompt = fallback.followUpPrompt;
   safeReport.meta = {
