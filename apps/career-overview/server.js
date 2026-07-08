@@ -1409,29 +1409,118 @@ function extractResumeFacts(resumeText = "") {
   const phone = normalizeText(phoneMatch?.[0]?.replace(/\s+/g, " "), 80);
   const name = normalizeText(lines.find((line) => {
     if (line.length < 2 || line.length > 30) return false;
-    if (/@|电话|手机|Tel|Email|邮箱|微信|LinkedIn|年龄|Age|简历|Resume|CV/i.test(line)) return false;
+    if (/@|电话|手机|Tel|Email|邮箱|微信|LinkedIn|年龄|Age|简历|Resume|CV|教育背景|教育经历|教育信息|学习经历|项目经历|实践经历|工作经历|实习经历|技能特长|自我评价/i.test(line)) return false;
     return /^[\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s.'-]{1,28}$/u.test(line);
   }), 80);
   return { text, lines, email, phone, name };
 }
 
+function isLikelyResumeSectionTitle(line = "") {
+  const text = normalizeText(line, 80);
+  if (!text || text.length > 24) return false;
+  return /^(教育背景|教育经历|教育信息|学习经历|项目经历|实践经历|在校经历|校园经历|社团经历|实习经历|工作经历|科研经历|发表成果|荣誉奖项|获奖经历|技能证书|技能特长|自我评价|个人总结|联系方式|基本信息|个人信息|Education|Experience|Projects?|Activities?|Research|Awards?|Honors?|Skills?|Summary|Profile)$/i.test(text);
+}
+
+function getLikelyEducationSectionLines(lines = []) {
+  const start = lines.findIndex((line) => /^(教育背景|教育经历|教育信息|学习经历|Education)$/i.test(normalizeText(line, 80)));
+  if (start < 0) return lines;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (isLikelyResumeSectionTitle(lines[index]) && !/^(教育背景|教育经历|教育信息|学习经历|Education)$/i.test(normalizeText(lines[index], 80))) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start + 1, end);
+}
+
+function isLikelyEducationNarrativeLine(line = "") {
+  const text = normalizeText(line, 200);
+  if (!text) return false;
+  if (text.length > 60) return true;
+  if (/负责|运营|策划|审核|增长|主持|社团|项目|活动|微博|社群|对接|拉赞助|执行|内容|粉丝|矩阵|公众号|宣传|编辑|投稿|直播|拍摄|采访|排版|策展|组织|统筹|商务|拓展|超话|话题|账号|社媒/i.test(text)) {
+    return true;
+  }
+  if (/[：:；;，,。]/.test(text) && !/(博士|硕士|本科|大专|MBA|EMBA|PhD|Master(?:'s)?|Bachelor(?:'s)?|研究生|专业|major|degree|GPA|绩点|学位|毕业)/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function extractEducationSchoolName(text = "") {
+  const normalized = normalizeText(text, 240);
+  const chineseMatch = normalized.match(/(?:^|[\s(（【\[]|[•·\-—"“'])((?:[\u4e00-\u9fa5A-Za-z&().（）·]{2,30})(?:大学|学院|学校))/u);
+  if (chineseMatch?.[1]) return normalizeText(chineseMatch[1], 120);
+  const englishMatch = normalized.match(/(?:^|[\s(（【\[]|[•·\-—"“'])([A-Za-z][A-Za-z&().,\s]{1,40}?(?:University|College|Institute|School))/i);
+  return normalizeText(englishMatch?.[1], 120);
+}
+
+function extractEducationMajor(text = "", school = "") {
+  let source = normalizeText(text, 240);
+  if (school) source = source.replace(school, " ");
+  source = source
+    .replace(/(博士|硕士|本科|大专|MBA|EMBA|PhD|Master(?:'s)?|Bachelor(?:'s)?|研究生|学士学位|硕士学位|博士学位)/ig, " ")
+    .replace(/((?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?\s*(?:-|~|—|至|to)\s*(?:Present|至今|现在|(?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?))/ig, " ");
+  const explicit = source.match(/(?:专业|major)[:：]?\s*([A-Za-z\u4e00-\u9fa5&/、\s]{2,40})/i)?.[1];
+  const inferredCandidates = source.match(/[A-Za-z\u4e00-\u9fa5&/、]{2,24}(?:新闻传播学|传播学|新闻学|心理学|教育学|语言学|经济学|金融学|法学|统计学|数学|物理学|化学|生物学|会计学|管理学|文学|体育学|艺术学|数据科学|计算机科学|软件工程|计算机|软件|传媒|设计|技术|工程|管理|传播|经济|金融|法学|统计|语言|文学|数学|物理|化学|生物|心理|教育|会计|专业|学)/ig) || [];
+  const inferred = inferredCandidates
+    .map((item) => normalizeText(item, 80))
+    .filter((item) => item && !/(大学|学院|学校|University|College|Institute|School)/i.test(item))
+    .sort((left, right) => right.length - left.length)[0];
+  const major = normalizeText(explicit || inferred, 80);
+  if (/(大学|学院|学校|University|College|Institute|School)/i.test(major)) return "";
+  return major;
+}
+
+function isLikelyEducationSchoolLine(line = "", nearby = []) {
+  const text = normalizeText(line, 200);
+  if (!/(大学|学院|学校|University|College|Institute|School)/i.test(text)) return false;
+  if (isLikelyEducationNarrativeLine(text)) return false;
+  const school = extractEducationSchoolName(text);
+  if (!school) return false;
+  const context = normalizeText([text, ...nearby.slice(1, 4)].join(" "), 320);
+  const hasEducationContext = /(博士|硕士|本科|大专|MBA|EMBA|PhD|Master(?:'s)?|Bachelor(?:'s)?|研究生|专业|major|degree|GPA|绩点|学位|毕业|在读|交换|课程|均分|成绩)/i.test(context)
+    || /((?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?)/.test(context);
+  if (!hasEducationContext && text.length > 26) return false;
+  return true;
+}
+
 function extractResumeEducationEntries(resumeText = "", basic = {}) {
   const lines = splitResumeLines(resumeText);
   const entries = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!/(大学|学院|学校|University|College|Institute|School)/i.test(line)) continue;
-    const nearby = lines.slice(index, index + 4);
-    const merged = nearby.join(" ");
-    entries.push({
-      id: `edu_${entries.length + 1}`,
-      school: normalizeText(line, 120),
-      degree: normalizeText(merged.match(/(博士|硕士|本科|大专|MBA|EMBA|PhD|Master(?:'s)?|Bachelor(?:'s)?|研究生)/i)?.[0], 80),
-      major: normalizeText(merged.match(/(?:专业[:：]?\s*)?([A-Za-z\u4e00-\u9fa5&/、\s]{2,30}(?:学|专业|工程|管理|传播|经济|金融|法学|统计|设计|技术))/)?.[1], 80),
-      period: normalizeText(merged.match(/((?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?\s*(?:-|~|—|至|to)\s*(?:Present|至今|现在|(?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?))/i)?.[1], 80),
-      highlights: normalizeText(nearby.find((item) => /(GPA|绩点|排名|奖学金|荣誉|研究|论文|课程|交换|实验室|社团)/i.test(item)), 200),
-    });
-    if (entries.length >= 4) break;
+  const lineGroups = [getLikelyEducationSectionLines(lines)];
+  if (lineGroups[0] !== lines) lineGroups.push(lines);
+  const seenKeys = new Set();
+  for (const scopedLines of lineGroups) {
+    for (let index = 0; index < scopedLines.length; index += 1) {
+      const line = scopedLines[index];
+      const nearby = scopedLines.slice(index, index + 4);
+      if (!isLikelyEducationSchoolLine(line, nearby)) continue;
+      const merged = nearby.join(" ");
+      const school = extractEducationSchoolName(line) || extractEducationSchoolName(merged);
+      if (!school) continue;
+      const degree = normalizeText(merged.match(/(博士|硕士|本科|大专|MBA|EMBA|PhD|Master(?:'s)?|Bachelor(?:'s)?|研究生)/i)?.[0], 80);
+      const major = extractEducationMajor(merged, school);
+      const period = normalizeText(merged.match(/((?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?\s*(?:-|~|—|至|to)\s*(?:Present|至今|现在|(?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?))/i)?.[1], 80);
+      const key = `${school}|${period}|${major}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      entries.push({
+        id: `edu_${entries.length + 1}`,
+        school,
+        degree,
+        major,
+        period,
+        highlights: normalizeText(
+          nearby.find((item) => item !== line
+            && !isLikelyEducationNarrativeLine(item)
+            && /(GPA|绩点|排名|奖学金|荣誉|研究|论文|课程|交换|实验室|学术|成绩|均分|获奖)/i.test(item)),
+          200
+        ),
+      });
+      if (entries.length >= 4) break;
+    }
+    if (entries.length) break;
   }
   if (entries.length) return entries;
   return [{
