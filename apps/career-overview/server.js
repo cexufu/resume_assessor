@@ -905,7 +905,7 @@ const applicationSystemPrompt = [
 
 const applicationJsonContract = [
   "JSON 顶层字段必须为：basicProfile, educationEntries, publicationEntries, achievementEntries, experienceEntries, storyBank, applicationHints。",
-  "basicProfile 字段：educationStage, major, targetGoal, targetDirection, currentThought, anxiety, region, age。",
+  "basicProfile 字段：fullName, email, phone, age, region, educationStage, major, oneLineIntro, targetGoal, targetDirection, currentThought, anxiety。",
   "educationEntries 最多 4 项，每项字段：id, school, degree, major, period, highlights。",
   "publicationEntries 最多 4 项，每项字段：id, title, type, venue, year, note。",
   "achievementEntries 最多 6 项，每项字段：id, title, type, year, note。",
@@ -922,7 +922,8 @@ const qaStudioSystemPrompt = [
   "你是问答工作台生成器。",
   "你只基于 career_profile、application_draft、当前问题和目标上下文，生成一份简洁、专业、像用户自己的回答草稿。",
   "不要写成长报告，不要泛泛夸奖，不要虚构经历。",
-  "先判断回答主轴，再选 2-3 条最相关证据，然后分别给精简版与展开版回答。",
+  "回答必须能看出用户想要什么、为什么想要、以及自己现在凭什么能要。",
+  "默认使用“正言 - 分点 - 佐证 - 强化”框架：先给确定性回答，再分点展开，每个点都要落到真实证据，最后再收束强化。",
   "没有足够证据时，要如实说明，而不是编造。",
   "回答长度要克制，适合求职或留学申请中的单题场景。",
   careerJudgmentPrinciples,
@@ -930,9 +931,12 @@ const qaStudioSystemPrompt = [
 ].join("\n");
 
 const qaStudioJsonContract = [
-  "JSON 顶层字段必须为：mainAxis, evidenceLines, shortAnswer, longAnswer, followUpPrompt.",
+  "JSON 顶层字段必须为：mainAxis, opening, pointBlocks, reinforcement, shortAnswer, longAnswer, followUpPrompt.",
   "mainAxis：1-2 句，说明这题应该怎么答。",
-  "evidenceLines：2-3 条短句，每条说明一条最相关证据；证据不足时也要说明缺什么。",
+  "opening：1 段，用正言先给出确定性回答，控制在 30-90 个中文字符。",
+  "pointBlocks：2-3 项，每项字段：heading, point, evidence。heading 优先围绕“我想要什么 / 为什么想要 / 我怎么能要 / 我接下来怎么补”组织。",
+  "pointBlocks.evidence 必须引用 application_draft 或 career_profile 中真实经历；证据不足时要如实说明缺什么。",
+  "reinforcement：1 段，用来收束和强化匹配度、成长动机或下一步决心，控制在 30-90 个中文字符。",
   "shortAnswer：1 段，适合面试口语表达，控制在 120-220 个中文字符。",
   "longAnswer：1 段，适合网申或书面表达，控制在 180-320 个中文字符。",
   "followUpPrompt：1 句，提醒用户下一步最值得补哪类信息或追问什么。",
@@ -1244,6 +1248,10 @@ function normalizeApplicationDraft(rawDraft = {}) {
   const applicationHints = draft.applicationHints && typeof draft.applicationHints === "object" ? draft.applicationHints : {};
   return {
     basicProfile: {
+      fullName: normalizeText(basicProfile.fullName, 80),
+      email: normalizeText(basicProfile.email, 120),
+      phone: normalizeText(basicProfile.phone, 80),
+      oneLineIntro: normalizeText(basicProfile.oneLineIntro, 180),
       educationStage: normalizeText(basicProfile.educationStage, 80),
       major: normalizeText(basicProfile.major, 80),
       targetGoal: normalizeText(basicProfile.targetGoal, 80),
@@ -1331,6 +1339,8 @@ function buildQaStudioPrompt(payload) {
   return [
     "请基于下面材料，生成单题回答草稿 JSON。",
     "只回答这一题，不要写成长报告。",
+    "回答框架必须体现“正言 - 分点 - 佐证 - 强化”。",
+    "要让人一眼看出：用户想要什么、为什么想要、现在凭什么能要、接下来还要补什么。",
     "",
     "career_profile：",
     stringifyCompact(payload.careerProfile),
@@ -1383,6 +1393,105 @@ function buildResumeChatMessages(payload) {
       content: question,
     },
   ];
+}
+
+function splitResumeLines(resumeText = "") {
+  return normalizeText(resumeText, MAX_RESUME_TEXT_CHARS)
+    .split(/\r?\n/)
+    .map((item) => item.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function extractResumeFacts(resumeText = "") {
+  const text = normalizeText(resumeText, MAX_RESUME_TEXT_CHARS);
+  const lines = splitResumeLines(text);
+  const email = normalizeText(text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0], 120);
+  const phoneMatch = text.match(/(?:\+?86[-\s]?)?(1[3-9]\d{9})|(?:\+?\d[\d\s-]{7,}\d)/);
+  const phone = normalizeText(phoneMatch?.[0]?.replace(/\s+/g, " "), 80);
+  const name = normalizeText(lines.find((line) => {
+    if (line.length < 2 || line.length > 30) return false;
+    if (/@|电话|手机|Tel|Email|邮箱|微信|LinkedIn|年龄|Age|简历|Resume|CV/i.test(line)) return false;
+    return /^[\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s.'-]{1,28}$/u.test(line);
+  }), 80);
+  return { text, lines, email, phone, name };
+}
+
+function extractResumeEducationEntries(resumeText = "", basic = {}) {
+  const lines = splitResumeLines(resumeText);
+  const entries = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!/(大学|学院|学校|University|College|Institute|School)/i.test(line)) continue;
+    const nearby = lines.slice(index, index + 4);
+    const merged = nearby.join(" ");
+    entries.push({
+      id: `edu_${entries.length + 1}`,
+      school: normalizeText(line, 120),
+      degree: normalizeText(merged.match(/(博士|硕士|本科|大专|MBA|EMBA|PhD|Master(?:'s)?|Bachelor(?:'s)?|研究生)/i)?.[0], 80),
+      major: normalizeText(merged.match(/(?:专业[:：]?\s*)?([A-Za-z\u4e00-\u9fa5&/、\s]{2,30}(?:学|专业|工程|管理|传播|经济|金融|法学|统计|设计|技术))/)?.[1], 80),
+      period: normalizeText(merged.match(/((?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?\s*(?:-|~|—|至|to)\s*(?:Present|至今|现在|(?:19|20)\d{2}(?:[./-](?:0?[1-9]|1[0-2]))?))/i)?.[1], 80),
+      highlights: normalizeText(nearby.find((item) => /(GPA|绩点|排名|奖学金|荣誉|研究|论文|课程|交换|实验室|社团)/i.test(item)), 200),
+    });
+    if (entries.length >= 4) break;
+  }
+  if (entries.length) return entries;
+  return [{
+    id: "edu_1",
+    school: "",
+    degree: normalizeText(basic.educationStage, 80),
+    major: normalizeText(basic.major, 80),
+    period: "",
+    highlights: "",
+  }].filter((item) => isUsefulTextValue(item.degree) || isUsefulTextValue(item.major) || isUsefulTextValue(item.school) || isUsefulTextValue(item.highlights));
+}
+
+function extractResumePublicationEntries(resumeText = "") {
+  return uniqueNonEmpty(
+    splitResumeLines(resumeText).filter((line) => /(论文|paper|publication|发表|专利|patent|作品集|portfolio|报告|report|文章)/i.test(line)),
+    4
+  ).map((line, index) => ({
+    id: `pub_${index + 1}`,
+    title: normalizeText(line, 120),
+    type: /(论文|paper|publication|发表)/i.test(line)
+      ? "发表"
+      : /(专利|patent)/i.test(line)
+        ? "专利"
+        : /(报告|report)/i.test(line)
+          ? "报告"
+          : "作品",
+    venue: "",
+    year: normalizeText(line.match(/((?:19|20)\d{2})/)?.[1], 40),
+    note: normalizeText(line, 200),
+  }));
+}
+
+function extractResumeAchievementEntries(resumeText = "") {
+  return uniqueNonEmpty(
+    splitResumeLines(resumeText).filter((line) => /(奖|证书|竞赛|荣誉|获奖|scholarship|award|certificate)/i.test(line)),
+    6
+  ).map((line, index) => ({
+    id: `ach_${index + 1}`,
+    title: normalizeText(line, 120),
+    type: /(证书|certificate)/i.test(line) ? "证书" : "荣誉",
+    year: normalizeText(line.match(/((?:19|20)\d{2})/)?.[1], 40),
+    note: normalizeText(line, 200),
+  }));
+}
+
+function buildApplicationOneLineIntro(careerProfile, resumeFacts = {}) {
+  const basic = careerProfile?.basic || {};
+  const experiences = Array.isArray(careerProfile?.experienceSummary) ? careerProfile.experienceSummary : [];
+  const strengths = Array.isArray(careerProfile?.strengths) ? careerProfile.strengths : [];
+  const major = normalizeText(basic.major, 80);
+  const direction = normalizeText(basic.targetDirection || basic.targetGoal, 120);
+  const topStrength = normalizeText(strengths[0]?.name, 80);
+  const topExperience = normalizeText(experiences[0]?.title, 80);
+  return pickUsefulText([
+    major && direction && topStrength ? `我是${major}背景，积累了${topStrength}相关经验，正在申请${direction}机会。` : "",
+    major && direction ? `我是${major}背景，正在把过往经历整理成更清楚的${direction}申请表达。` : "",
+    topExperience && direction ? `我过去在${topExperience}中积累了可迁移经验，正在申请${direction}机会。` : "",
+    resumeFacts?.name && direction ? `${resumeFacts.name}正在围绕${direction}整理自己的申请故事。` : "",
+  ], "我正在把已有经历整理成一版更清楚、可复用的申请表达。");
 }
 
 async function callDeepSeekJson(requestBody) {
@@ -2878,7 +2987,7 @@ async function createModuleReport(moduleType, careerProfile, moduleInput) {
   return ensureModuleFields(moduleType, report, careerProfile, moduleInput);
 }
 
-function buildDeterministicApplicationDraft(careerProfile) {
+function buildDeterministicApplicationDraft(careerProfile, resumeText = "") {
   const safeProfile = careerProfile && typeof careerProfile === "object" ? careerProfile : {};
   const basic = safeProfile.basic || {};
   const experiences = Array.isArray(safeProfile.experienceSummary) ? safeProfile.experienceSummary : [];
@@ -2886,8 +2995,13 @@ function buildDeterministicApplicationDraft(careerProfile) {
   const skills = Array.isArray(safeProfile.skills) ? safeProfile.skills : [];
   const evidence = Array.isArray(safeProfile.evidence) ? safeProfile.evidence : [];
   const missingInformation = Array.isArray(safeProfile.missingInformation) ? safeProfile.missingInformation : [];
+  const resumeFacts = extractResumeFacts(resumeText);
   const draft = {
     basicProfile: {
+      fullName: normalizeText(resumeFacts.name, 80),
+      email: normalizeText(resumeFacts.email, 120),
+      phone: normalizeText(resumeFacts.phone, 80),
+      oneLineIntro: buildApplicationOneLineIntro(safeProfile, resumeFacts),
       educationStage: normalizeText(basic.educationStage, 80),
       major: normalizeText(basic.major, 80),
       targetGoal: normalizeText(basic.targetGoal, 80),
@@ -2897,27 +3011,30 @@ function buildDeterministicApplicationDraft(careerProfile) {
       region: normalizeText(basic.region, 80),
       age: normalizeText(basic.age, 12),
     },
-    educationEntries: [{
-      id: "edu_1",
-      school: "",
-      degree: normalizeText(basic.educationStage, 80),
-      major: normalizeText(basic.major, 80),
-      period: "",
-      highlights: pickUsefulText([
-        evidence.find((item) => /(专业|学历|毕业|学位|学校)/.test(String(item || ""))),
-      ], ""),
-    }].filter((item) => isUsefulTextValue(item.degree) || isUsefulTextValue(item.major) || isUsefulTextValue(item.school) || isUsefulTextValue(item.highlights)),
-    publicationEntries: [],
-    achievementEntries: uniqueNonEmpty(
-      evidence.filter((item) => /(奖|证书|竞赛|荣誉|发表|论文|专利|作品|报告)/.test(String(item || ""))),
-      4
-    ).map((item, index) => ({
-      id: `ach_${index + 1}`,
-      title: normalizeText(item, 120),
-      type: /(论文|发表|专利|作品|报告)/.test(String(item || "")) ? "成果" : "荣誉",
-      year: "",
-      note: normalizeText(item, 200),
+    educationEntries: extractResumeEducationEntries(resumeText, basic).map((item) => ({
+      ...item,
+      highlights: pickUsefulText([item.highlights, evidence.find((entry) => /(专业|学历|毕业|学位|学校)/.test(String(entry || "")))], ""),
     })),
+    publicationEntries: extractResumePublicationEntries(resumeText),
+    achievementEntries: uniqueNonEmpty([
+      ...extractResumeAchievementEntries(resumeText).map((item) => JSON.stringify(item)),
+      ...evidence.filter((item) => /(奖|证书|竞赛|荣誉|发表|论文|专利|作品|报告)/.test(String(item || ""))).map((item) => JSON.stringify({
+        id: "",
+        title: normalizeText(item, 120),
+        type: /(论文|发表|专利|作品|报告)/.test(String(item || "")) ? "成果" : "荣誉",
+        year: "",
+        note: normalizeText(item, 200),
+      })),
+    ], 6).map((item, index) => {
+      const parsed = JSON.parse(item);
+      return {
+        id: normalizeText(parsed.id, 40) || `ach_${index + 1}`,
+        title: normalizeText(parsed.title, 120),
+        type: normalizeText(parsed.type, 80),
+        year: normalizeText(parsed.year, 40),
+        note: normalizeText(parsed.note, 200),
+      };
+    }),
     experienceEntries: experiences.slice(0, 6).map((item, index) => ({
       id: `exp_${index + 1}`,
       title: normalizeText(item?.title, 120) || `经历 ${index + 1}`,
@@ -2941,8 +3058,9 @@ function buildDeterministicApplicationDraft(careerProfile) {
       ], 4),
     })),
     applicationHints: {
-      summary: "这是一版根据职业画像压缩出的申请底稿，适合先整理，再继续补细节。",
+      summary: "这是一版按你现有简历和职业画像直接整理出的可复制底稿，先填表，再慢慢打磨表达。",
       priorityModules: uniqueNonEmpty([
+        !resumeFacts.name ? "先补姓名、邮箱、联系方式这类基础信息。" : "",
         "先确认学历、专业、时间线是否完整。",
         "把发表、作品、奖项这类成果单独列出来。",
         "先整理 1-2 段最能代表你的经历。",
@@ -2953,18 +3071,22 @@ function buildDeterministicApplicationDraft(careerProfile) {
       missingProof: uniqueNonEmpty(missingInformation, 4),
     },
     meta: {
-      mode: "deterministic_local",
+      mode: "structured_local",
       generatedAt: new Date().toISOString(),
     },
   };
   return draft;
 }
 
-function ensureApplicationDraftFields(draft, careerProfile) {
-  const fallback = buildDeterministicApplicationDraft(careerProfile);
+function ensureApplicationDraftFields(draft, careerProfile, resumeText = "") {
+  const fallback = buildDeterministicApplicationDraft(careerProfile, resumeText);
   const safeDraft = draft && typeof draft === "object" ? draft : {};
   const basicProfile = safeDraft.basicProfile && typeof safeDraft.basicProfile === "object" ? safeDraft.basicProfile : {};
   safeDraft.basicProfile = {
+    fullName: isUsefulTextValue(basicProfile.fullName) ? normalizeText(basicProfile.fullName, 80) : fallback.basicProfile.fullName,
+    email: isUsefulTextValue(basicProfile.email) ? normalizeText(basicProfile.email, 120) : fallback.basicProfile.email,
+    phone: isUsefulTextValue(basicProfile.phone) ? normalizeText(basicProfile.phone, 80) : fallback.basicProfile.phone,
+    oneLineIntro: isUsefulTextValue(basicProfile.oneLineIntro) ? normalizeText(basicProfile.oneLineIntro, 180) : fallback.basicProfile.oneLineIntro,
     educationStage: isUsefulTextValue(basicProfile.educationStage) ? normalizeText(basicProfile.educationStage, 80) : fallback.basicProfile.educationStage,
     major: isUsefulTextValue(basicProfile.major) ? normalizeText(basicProfile.major, 80) : fallback.basicProfile.major,
     targetGoal: isUsefulTextValue(basicProfile.targetGoal) ? normalizeText(basicProfile.targetGoal, 80) : fallback.basicProfile.targetGoal,
@@ -3068,7 +3190,7 @@ async function createApplicationDraftReport(careerProfile, resumeText = "") {
     maxTokens: APPLICATION_MAX_TOKENS,
     temperature: 0.15,
   }));
-  return ensureApplicationDraftFields(report, careerProfile);
+  return ensureApplicationDraftFields(report, careerProfile, resumeText);
 }
 
 function pickQaEvidenceStories(applicationDraft, question, targetContext = {}) {
@@ -3104,11 +3226,40 @@ function buildDeterministicQaReport(payload) {
   const role = normalizeText(target.targetRole, 120) || normalizeText(payload.careerProfile?.basic?.targetDirection, 120) || "这个方向";
   const org = normalizeText(target.targetOrganization, 120) || "目标机构";
   const tone = normalizeText(target.tone, 40) || "真诚简洁";
+  const targetReason = normalizeText(target.extraContext, 280) || normalizeText(payload.careerProfile?.basic?.currentThought, 280);
   const evidenceLines = stories.length
     ? stories.map((story) => `${story.title || "相关经历"}：${pickUsefulText([story.result, story.action, story.situation], "这条证据还需要你补一点事实细节。")}`)
     : ["当前故事库还不够，建议先补 1-2 条能说明个人贡献和结果的经历。"];
+  const pointBlocks = [
+    {
+      heading: "我想要什么",
+      point: `我想走向${role}，并不是泛泛地想试一试，而是希望把自己已经积累的能力放进更明确的场景里。`,
+      evidence: stories[0]
+        ? `${stories[0].title || "这段经历"}让我确认自己更适合在复杂任务里做判断、推进和表达。`
+        : "目前还缺一条足够直接的岗位证据，需要先补故事库。",
+    },
+    {
+      heading: "为什么想要",
+      point: targetReason
+        ? `我想要这个方向，是因为${targetReason.replace(/[。；;]+$/g, "")}，而不是只被岗位名字吸引。`
+        : `我想要这个方向，是因为过去的经历让我越来越清楚，自己更适合解决${role}相关的问题。`,
+      evidence: stories[1]
+        ? `${stories[1].title || "另一段经历"}说明这种倾向不是一次性的，而是反复出现过。`
+        : "如果能补一条更具体的动机来源，这一层会更有说服力。",
+    },
+    {
+      heading: "我怎么能要",
+      point: `我不是从零开始，我已经有一部分相邻能力；接下来要做的，是把这些能力翻译成更直接的岗位证据。`,
+      evidence: stories[2]
+        ? `${stories[2].title || "当前故事"}可以继续拆成 STAR，证明我不仅想做，而且做过、能做好。`
+        : "下一步先补一个能说明个人贡献和结果变化的案例，回答会更稳。",
+    },
+  ];
   return {
     mainAxis: `这题不要从空泛热情开始，而要从“我过去积累了什么能力，以及它为什么自然指向${role}”开始。`,
+    opening: `是的，我适合也愿意走向${role}，因为这不是一个突然的念头，而是被我过往经历一步步推出来的选择。`,
+    pointBlocks,
+    reinforcement: `如果面对${org}这样的目标，我不会只讲兴趣，而会用真实经历证明自己为什么值得这个机会，并继续把证据补得更完整。`,
     evidenceLines,
     shortAnswer: `我之所以想走向${role}，不是因为一个临时决定，而是因为我过去的经历一直在往这个方向积累能力。${stories[0]?.title ? `像“${stories[0].title}”这段经历，就让我更清楚自己适合在复杂信息里做判断、推进和表达。` : "现在最大的任务，是先把能证明自己的经历整理得更完整。"} 如果接下来真的进入${org}这样的场景，我也希望把这些能力放进更明确的问题里继续成长。`,
     longAnswer: `如果让我完整回答这个问题，我会这样展开：第一，我过去的经历并不是分散的，它们一直在积累与${role}相关的能力。第二，这些能力和这个方向要解决的问题是相关的。第三，我不是只想“试试看”，而是已经从过往的项目或经历里，看到了自己在这个方向上的适配感。现在如果面对${org}这样的目标，我会把表达收成更${tone}的方式，并且尽量用真实经历去支撑，而不是只讲抽象兴趣。`,
@@ -3126,6 +3277,15 @@ function ensureQaStudioFields(report, payload) {
   const fallback = buildDeterministicQaReport(payload);
   const safeReport = report && typeof report === "object" ? report : {};
   if (!isUsefulTextValue(safeReport.mainAxis)) safeReport.mainAxis = fallback.mainAxis;
+  if (!isUsefulTextValue(safeReport.opening)) safeReport.opening = fallback.opening;
+  safeReport.pointBlocks = Array.isArray(safeReport.pointBlocks) && safeReport.pointBlocks.length
+    ? safeReport.pointBlocks.slice(0, 3).map((item, index) => ({
+      heading: isUsefulTextValue(item?.heading) ? normalizeText(item.heading, 40) : fallback.pointBlocks[index]?.heading,
+      point: isUsefulTextValue(item?.point) ? normalizeText(item.point, 180) : fallback.pointBlocks[index]?.point,
+      evidence: isUsefulTextValue(item?.evidence) ? normalizeText(item.evidence, 180) : fallback.pointBlocks[index]?.evidence,
+    }))
+    : fallback.pointBlocks;
+  if (!isUsefulTextValue(safeReport.reinforcement)) safeReport.reinforcement = fallback.reinforcement;
   safeReport.evidenceLines = Array.isArray(safeReport.evidenceLines) && safeReport.evidenceLines.length
     ? safeReport.evidenceLines.filter(isUsefulTextValue).slice(0, 3)
     : fallback.evidenceLines;
@@ -3740,50 +3900,18 @@ async function handleCreateApplicationDraft(req, res) {
       sendJson(res, 400, { error: "请先完成职业画像生成。" });
       return;
     }
-
-    if (!DEEPSEEK_API_KEY) {
-      const localDraft = buildDeterministicApplicationDraft(payload.careerProfile);
-      sendJson(res, 200, {
-        ...localDraft,
-        meta: {
-          ...(localDraft.meta || {}),
-          provider: "local",
-          fallback: true,
-          reason: "missing_api_key",
-        },
-      });
-      return;
-    }
-
-    try {
-      const report = await createApplicationDraftReport(
-        payload.careerProfile,
-        normalizeText(payload.extractedResumeText, MAX_RESUME_TEXT_CHARS)
-      );
-      report.meta = {
-        ...(report.meta || {}),
-        mode: "ai",
-        provider: "deepseek",
-        model: DEEPSEEK_MODEL,
-        baseUrl: DEEPSEEK_BASE_URL,
-        tokenBudget: {
-          applicationMaxTokens: APPLICATION_MAX_TOKENS,
-          profileMaxChars: MAX_PROFILE_JSON_CHARS,
-        },
-      };
-      sendJson(res, 200, report);
-    } catch (error) {
-      const localDraft = buildDeterministicApplicationDraft(payload.careerProfile);
-      sendJson(res, 200, {
-        ...localDraft,
-        meta: {
-          ...(localDraft.meta || {}),
-          provider: "local",
-          fallback: true,
-          reason: error.message,
-        },
-      });
-    }
+    const localDraft = buildDeterministicApplicationDraft(
+      payload.careerProfile,
+      normalizeText(payload.extractedResumeText, MAX_RESUME_TEXT_CHARS)
+    );
+    sendJson(res, 200, {
+      ...localDraft,
+      meta: {
+        ...(localDraft.meta || {}),
+        provider: "local",
+        fastTrack: true,
+      },
+    });
   } catch (error) {
     sendJson(res, 500, { error: error.message });
   }

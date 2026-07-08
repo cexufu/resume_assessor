@@ -47,6 +47,10 @@ function createApplicationDraft(saved) {
   const draft = {
     generatedAt: new Date().toISOString(),
     basicProfile: {
+      fullName: "",
+      email: "",
+      phone: "",
+      oneLineIntro: "",
       age: basic.age || "",
       region: basic.region || "",
       educationStage: basic.educationStage || "",
@@ -140,7 +144,7 @@ async function init() {
 
   renderSummary(saved);
   const draft = await prepareApplicationDraft(saved);
-  showToast(draft?.meta?.fallback ? "已准备本地申请底稿" : "下一程已准备好");
+  showToast(draft?.meta?.mode === "structured_local" ? "可复制底稿已准备好" : "下一程已准备好");
 }
 
 init();

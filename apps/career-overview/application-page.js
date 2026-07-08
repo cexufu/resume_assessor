@@ -60,6 +60,10 @@ function buildDraftFromProfile(saved) {
   return {
     generatedAt: new Date().toISOString(),
     basicProfile: {
+      fullName: "",
+      email: "",
+      phone: "",
+      oneLineIntro: "",
       age: basic.age || "",
       region: basic.region || "",
       educationStage: basic.educationStage || "",
@@ -134,6 +138,10 @@ function mergeDraftWithProfile(rawDraft, saved) {
   return {
     ...draft,
     basicProfile: {
+      fullName: isUsefulText(basicSource.fullName) ? String(basicSource.fullName).trim() : fallback.basicProfile.fullName,
+      email: isUsefulText(basicSource.email) ? String(basicSource.email).trim() : fallback.basicProfile.email,
+      phone: isUsefulText(basicSource.phone) ? String(basicSource.phone).trim() : fallback.basicProfile.phone,
+      oneLineIntro: isUsefulText(basicSource.oneLineIntro) ? String(basicSource.oneLineIntro).trim() : fallback.basicProfile.oneLineIntro,
       age: isUsefulText(basicSource.age) ? String(basicSource.age).trim() : fallback.basicProfile.age,
       region: isUsefulText(basicSource.region) ? String(basicSource.region).trim() : fallback.basicProfile.region,
       educationStage: isUsefulText(basicSource.educationStage) ? String(basicSource.educationStage).trim() : fallback.basicProfile.educationStage,
@@ -252,7 +260,7 @@ async function hydrateDraftFromApi() {
 
 function calculateProgress(draft) {
   const basic = draft.basicProfile || {};
-  const basicFields = ["educationStage", "major", "targetGoal", "targetDirection"];
+  const basicFields = ["fullName", "email", "phone", "oneLineIntro", "educationStage", "major", "targetGoal", "targetDirection"];
   const basicScore = basicFields.filter((key) => fallbackText(basic[key])).length;
   const educationScore = Array.isArray(draft.educationEntries) ? Math.min(2, draft.educationEntries.filter((item) => fallbackText(item?.degree) || fallbackText(item?.major) || fallbackText(item?.school)).length) : 0;
   const publicationScore = Array.isArray(draft.publicationEntries) ? Math.min(1, draft.publicationEntries.filter((item) => fallbackText(item?.title)).length) : 0;
@@ -260,7 +268,7 @@ function calculateProgress(draft) {
   const experienceScore = Array.isArray(draft.experienceEntries) ? Math.min(2, draft.experienceEntries.filter((item) => fallbackText(item?.evidence)).length) : 0;
   const storyScore = Array.isArray(draft.storyBank) ? Math.min(2, draft.storyBank.filter((item) => fallbackText(item?.situation) || fallbackText(item?.action)).length) : 0;
   const total = basicScore + educationScore + publicationScore + achievementScore + experienceScore + storyScore;
-  return Math.round((total / 12) * 100);
+  return Math.round((total / 16) * 100);
 }
 
 function renderHints() {
@@ -287,12 +295,16 @@ function renderHints() {
 function renderBasicGrid() {
   const basic = state.draft.basicProfile || {};
   const fields = [
+    ["fullName", "姓名", "例如：张三"],
+    ["email", "邮箱", "例如：name@email.com"],
+    ["phone", "电话 / 微信", "例如：13800000000"],
+    ["age", "年龄", "例如：22 / 31"],
+    ["region", "所在地区", "例如：北京 / 上海 / 海外"],
+    ["oneLineIntro", "一句话自我介绍", "例如：法学背景，正在申请互联网运营与内容策略方向", true],
     ["educationStage", "当前阶段", "例如：本科 / 硕士 / 在职"],
     ["major", "专业 / 背景", "例如：新闻传播 / 生物 / 商科"],
     ["targetGoal", "当前目标", "例如：找工作 / 留学申请 / 转行"],
     ["targetDirection", "想去的方向", "例如：数据分析 / 品牌战略"],
-    ["region", "所在地区", "例如：北京 / 上海 / 海外"],
-    ["age", "年龄", "例如：22 / 31"],
     ["currentThought", "现在的想法", "你现在最在意的方向和顾虑", true],
     ["anxiety", "当前课题", "你最想解决的问题是什么", true],
   ];
@@ -463,6 +475,9 @@ function renderDraft() {
   if (state.draft?.meta?.fallback) {
     modeLine.hidden = false;
     modeLine.textContent = "当前是本地草稿模式：因为本地没有配置 DeepSeek key，所以先用职业画像生成一版可编辑底稿。";
+  } else if (state.draft?.meta?.mode === "structured_local") {
+    modeLine.hidden = false;
+    modeLine.textContent = "当前是结构化直出模式：已按简历和职业画像整理成可复制底稿，不等待 AI 长文本生成。";
   } else {
     modeLine.hidden = true;
     modeLine.textContent = "";
@@ -598,12 +613,12 @@ async function init() {
     });
     return;
   }
-  qs("#applicationHintSummary").textContent = "正在把你的职业画像整理成一版可编辑底稿。";
-  qs("#applicationSummaryCopy").textContent = "先把你的经历压成申请语言，进入后就能直接开始改。";
+  qs("#applicationHintSummary").textContent = "正在整理你的可复制底稿。";
+  qs("#applicationSummaryCopy").textContent = "先把能直接填表的信息拉出来，再慢慢补成更像你的表达。";
   state.draft = await hydrateDraftFromApi();
   renderDraft();
   bindEvents();
-  showToast(state.draft?.meta?.fallback ? "当前是本地底稿模式" : "申请底稿已生成");
+  showToast(state.draft?.meta?.mode === "structured_local" ? "申请底稿已整理完成" : "申请底稿已生成");
 }
 
 init();

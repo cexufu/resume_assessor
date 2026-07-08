@@ -1589,6 +1589,24 @@ textarea {
   padding-left: 18px;
 }
 
+.qa-point-block {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(199, 210, 222, 0.7);
+}
+
+.qa-point-block:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.qa-point-block strong {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #1f2937;
+}
+
 @media (max-width: 1080px) {
   .workspace {
     grid-template-columns: 1fr;

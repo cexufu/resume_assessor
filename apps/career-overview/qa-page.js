@@ -102,10 +102,39 @@ function buildOutput() {
   const evidenceLines = evidence.length
     ? evidence.map((item) => `${item.title || "相关经历"}：${item.situation || item.action || item.result || "还需要你补一点事实细节"}`)
     : ["还没有足够的故事底稿，建议先去申请资料中心补 1-2 条经历。"];
+  const opening = `是的，我想走向 ${role}，而且这个选择不是临时起意，它和我过去已经积累的能力与经历是连着的。`;
+  const pointBlocks = [
+    {
+      heading: "我想要什么",
+      point: `我想把自己放进 ${role} 这样的场景里，不只是获得一个岗位名称，而是进入更匹配自己能力的工作问题。`,
+      evidence: evidence[0]?.title
+        ? `${evidence[0].title} 这段经历，让我确认自己更适合在复杂任务里做判断、推进和表达。`
+        : "目前还缺一条最能直接对位的经历，需要先补证据。",
+    },
+    {
+      heading: "为什么想要",
+      point: extra
+        ? `我想要这个方向，也和我现在最在意的问题有关：${extra.replace(/[。；;]+$/g, "")}。`
+        : `我想要这个方向，是因为过往经历让我越来越清楚，自己更适合解决这类问题。`,
+      evidence: evidence[1]?.title
+        ? `${evidence[1].title} 说明这种倾向不是一次性的，而是反复出现过。`
+        : "如果能再补一条动机来源，这一层会更有说服力。",
+    },
+    {
+      heading: "我怎么能要",
+      point: `我不是从零开始，我已经有相邻能力。下一步要做的，是把这些能力翻译成更直接的岗位证据。`,
+      evidence: evidence[2]?.title
+        ? `${evidence[2].title} 可以继续拆成 STAR，证明我不仅想做，而且做过、能做好。`
+        : "下一步先补一个能说明个人贡献和结果变化的案例。",
+    },
+  ];
   const shortAnswer = `我之所以想走向 ${role}，不是因为一个临时决定，而是因为我在过去的经历里，已经反复积累了和这个方向相关的能力。${evidence[0]?.title ? `像 ${evidence[0].title} 这段经历，就让我更清楚自己适合在复杂信息里做判断、推进和表达。` : "我已经能看到一些方向，但还需要把证据整理得更完整。"} 现在再往前走，我希望把这些能力放进更明确的场景里，继续长成更稳定的专业能力。`;
   const longAnswer = `如果让我回答“${lead}”，我会这样展开：第一，我过去的经历并不是分散的，它们其实一直在积累某种一致的能力。第二，这些能力和 ${role} 需要解决的问题是相关的。第三，我并不是只想“试试看”，而是已经在过去的项目或经历里看到自己在这个方向上的适配感。${extra ? ` 另外，我也会特别注意：${extra}` : ""} 如果是面对 ${org} 这样的目标，我会把表达调整成更 ${tone} 的方式，并把篇幅控制在 ${length}。`;
   return {
     mainAxis,
+    opening,
+    pointBlocks,
+    reinforcement: `如果面对 ${org} 这样的目标，我不会只讲兴趣，而会用真实经历说明自己为什么值得这个机会，以及接下来会怎么继续补强。`,
     evidenceLines,
     shortAnswer,
     longAnswer,
@@ -113,9 +142,33 @@ function buildOutput() {
   };
 }
 
+function normalizeQaOutput(output) {
+  const safeOutput = output && typeof output === "object" ? output : {};
+  const fallback = buildOutput();
+  return {
+    ...safeOutput,
+    mainAxis: fallbackText(safeOutput.mainAxis, fallback.mainAxis),
+    opening: fallbackText(safeOutput.opening, fallback.opening),
+    pointBlocks: Array.isArray(safeOutput.pointBlocks) && safeOutput.pointBlocks.length
+      ? safeOutput.pointBlocks.slice(0, 3).map((item, index) => ({
+        heading: fallbackText(item?.heading, fallback.pointBlocks[index]?.heading || `分点 ${index + 1}`),
+        point: fallbackText(item?.point, fallback.pointBlocks[index]?.point || ""),
+        evidence: fallbackText(item?.evidence, fallback.pointBlocks[index]?.evidence || ""),
+      }))
+      : fallback.pointBlocks,
+    reinforcement: fallbackText(safeOutput.reinforcement, fallback.reinforcement),
+    shortAnswer: fallbackText(safeOutput.shortAnswer, fallback.shortAnswer),
+    longAnswer: fallbackText(safeOutput.longAnswer, fallback.longAnswer),
+    followUpPrompt: fallbackText(safeOutput.followUpPrompt, "继续补证据，再回来改这一题。"),
+    meta: safeOutput.meta || {},
+  };
+}
+
 function renderOutput(output) {
+  const normalized = normalizeQaOutput(output);
+  state.lastOutput = normalized;
   const modeLine = qs("#qaModeLine");
-  if (output?.meta?.fallback) {
+  if (normalized?.meta?.fallback) {
     modeLine.hidden = false;
     modeLine.textContent = "当前是本地证据草稿模式：因为本地没有配置 DeepSeek key，所以先基于故事库生成一版结构化回答。";
   } else {
@@ -125,27 +178,41 @@ function renderOutput(output) {
   qs("#qaOutputGrid").innerHTML = `
     <article class="qa-output-card">
       <h3>回答主轴</h3>
-      <p>${escapeHtml(output.mainAxis)}</p>
+      <p>${escapeHtml(normalized.mainAxis)}</p>
     </article>
     <article class="qa-output-card">
-      <h3>可用证据</h3>
-      <ul>${output.evidenceLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
+      <h3>正言</h3>
+      <p>${escapeHtml(normalized.opening)}</p>
+    </article>
+    <article class="qa-output-card">
+      <h3>强化</h3>
+      <p>${escapeHtml(normalized.reinforcement)}</p>
+    </article>
+    <article class="qa-output-card">
+      <h3>分点与佐证</h3>
+      ${normalized.pointBlocks.map((item) => `
+        <div class="qa-point-block">
+          <strong>${escapeHtml(item.heading)}</strong>
+          <p>${escapeHtml(item.point)}</p>
+          <p>${escapeHtml(item.evidence)}</p>
+        </div>
+      `).join("")}
     </article>
     <article class="qa-output-card">
       <h3>精简版回答</h3>
-      <p>${escapeHtml(output.shortAnswer)}</p>
+      <p>${escapeHtml(normalized.shortAnswer)}</p>
     </article>
     <article class="qa-output-card">
       <h3>展开版回答</h3>
-      <p>${escapeHtml(output.longAnswer)}</p>
+      <p>${escapeHtml(normalized.longAnswer)}</p>
     </article>
     <article class="qa-output-card">
       <h3>下一步</h3>
-      <p>${escapeHtml(fallbackText(output.followUpPrompt, "继续补证据，再回来改这一题。"))}</p>
+      <p>${escapeHtml(normalized.followUpPrompt)}</p>
     </article>
   `;
   qs("#qaRefineActions").hidden = false;
-  qs("#qaStatus").textContent = output?.meta?.fallback ? "本地草稿已生成" : "回答已生成";
+  qs("#qaStatus").textContent = normalized?.meta?.fallback ? "本地草稿已生成" : "回答已生成";
 }
 
 function regenerateWithRefine(refineLabel) {
