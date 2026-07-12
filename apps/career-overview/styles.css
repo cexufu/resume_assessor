@@ -284,6 +284,17 @@ button:disabled {
   min-height: 240px;
 }
 
+.privacy-note {
+  margin: -2px 0 0;
+  border: 1px solid rgba(184, 134, 11, 0.22);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #6f4e12;
+  background: #fff7df;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .intake-hero {
   display: grid;
   gap: 8px;
@@ -635,6 +646,28 @@ textarea {
 .result-section {
   padding: 20px 18px;
   border-bottom: 1px solid var(--line);
+}
+
+.quality-note {
+  display: grid;
+  gap: 4px;
+  margin: 14px 0 16px;
+  border: 1px solid rgba(45, 100, 167, 0.2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #25425f;
+  background: #eef6ff;
+}
+
+.quality-note strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.quality-note p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .result-section:last-child {

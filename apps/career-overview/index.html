@@ -101,6 +101,10 @@
             <textarea id="resumeText" spellcheck="false" placeholder="把简历全文粘贴到这里。"></textarea>
           </label>
 
+          <p class="privacy-note">
+            为保护隐私，建议先删去身份证号、详细住址、手机号、邮箱、证件照片和无关家庭信息；系统只需要经历、能力证据、目标和困惑来完成分析。
+          </p>
+
           <div class="button-row">
             <button class="primary-button" id="analyzeBtn" type="button">Load My Life</button>
             <button class="ghost-button" id="clearBtn" type="button">清空</button>
@@ -132,6 +136,10 @@
                 <h3>你的职业画像</h3>
               </div>
               <p class="lead-text comfort-text" id="comfortIntro">--</p>
+              <div class="quality-note" id="qualityNote" hidden>
+                <strong>本次分析提示</strong>
+                <p id="qualityNoteText">--</p>
+              </div>
               <div class="snapshot-grid">
                 <article>
                   <span>你是谁</span>

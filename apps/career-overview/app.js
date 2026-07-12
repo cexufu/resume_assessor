@@ -777,6 +777,7 @@ function renderReport(report) {
   applyOverviewSectionCopy(report);
   renderIdentitySnapshot(report);
   renderComfort(report);
+  renderQualityNote(report);
   renderCapabilityDiagnosis(report.capabilityDiagnosis || {});
   renderPeerScore(report.peerScore || {});
   renderAbilityFields(report.abilityFields);
@@ -826,6 +827,39 @@ function renderComfort(report) {
   if (hasComfort) setSectionVisibleByChild("#comfortIntro", true);
 }
 
+function renderQualityNote(report) {
+  const note = qs("#qualityNote");
+  const textNode = qs("#qualityNoteText");
+  if (!note || !textNode) return;
+
+  const meta = report?.meta || {};
+  const issues = Array.isArray(meta.qualityIssues) ? meta.qualityIssues : [];
+  const shouldShow = Boolean(
+    meta.lowConfidence ||
+    meta.layeredOverviewFailed ||
+    meta.deterministicOverviewFallback ||
+    issues.length,
+  );
+
+  if (!shouldShow) {
+    note.hidden = true;
+    textNode.textContent = "";
+    return;
+  }
+
+  const issueHints = issues.map((issue) => ({
+    capability_diagnosis_too_generic: "项目里的具体能力证据",
+    directions_too_generic: "你想探索的行业或岗位边界",
+    route_cards_too_generic: "过往行动、作品和结果数据",
+    missing_new_possibilities: "你愿意尝试但还没写进简历的新方向",
+  }[issue])).filter(Boolean);
+  const uniqueHints = [...new Set(issueHints)];
+  const fallbackHint = "可以补充更具体的项目背景、你的判断过程和可验证结果后再生成一次。";
+  const detailHint = uniqueHints.length ? `可以重点补充：${uniqueHints.join("、")}。` : fallbackHint;
+
+  textNode.textContent = `这次分析有部分内容由备用逻辑补齐，适合先用来打开思路，不建议当作最终定论。${detailHint}`;
+  note.hidden = false;
+}
 function renderCapabilityDiagnosis(diagnosis) {
   const hasCoreAbility = setResultText("#coreAbility", diagnosis.coreAbility);
   const hasEvidence = setResultText("#abilityEvidence", diagnosis.evidence);
