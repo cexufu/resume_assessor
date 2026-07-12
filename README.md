@@ -1,39 +1,64 @@
-# 职业发展总览
+# Career Overview AI
 
-这是一个无构建的 Node.js + 静态前端 MVP，用 DeepSeek 生成简历与职业发展分析。
+AI resume and career development analyzer for people who want a clearer next step, not another generic resume rewrite.
 
-## 功能
+`Career Overview AI` turns a resume, goals, and context into a structured career profile, then generates practical analysis across career direction, study planning, ability gaps, and follow-up questions.
 
-- 上传或粘贴 TXT/MD/PDF/DOCX 简历
-- 生成结构化 `career_profile`
-- 输出职业发展短总览
-- 分页生成职业方向、留学/专业方向、能力地图分析
-- 支持基于画像和报告上下文的流式追问
-- 支持导出模型返回的 JSON
+## Who It Is For
 
-## 产品判断规则
+- Students and early-career professionals choosing a next direction.
+- Career changers trying to connect past experience with future options.
+- Advisors, mentors, and education consultants who need a structured first-pass analysis.
+- Builders exploring AI products for career planning, resume analysis, and ability mapping.
 
-- 能力比经历重要：经历只有能证明能力、判断、设计、协作或产出时才有职业价值。
-- 简历表达本身也是能力证据：如果用户写不清楚，要指出表达缺口，而不是替用户泛泛美化。
-- 量化产出重要，但简历分析先判断能力，再解释证据和结果。
-- 分析要区分执行、战术、战略层级，帮助用户看到下一层视野。
-- 职业可能性探索要基于证据，同时让用户看到 1-2 个原路径之外的新可能。
-- 学术、科研、工业、商业、创作方向的本质不同，建议要关注人的倾向和适配环境。
+## What It Does
 
-## 启动
+- Upload or paste a resume in TXT, MD, PDF, or DOCX format.
+- Generate a structured `career_profile` from the user's evidence.
+- Produce a short career development overview.
+- Generate deeper modules for career direction, study or major planning, and ability mapping.
+- Support streaming follow-up questions based on the profile and generated reports.
+- Export the model response as JSON for review or further product work.
+
+## Product Principles
+
+- Ability matters more than experience labels.
+- Resume clarity is itself a signal of professional readiness.
+- Good advice should distinguish execution, tactical judgment, and strategic potential.
+- Career possibilities should be evidence-based while still surfacing one or two non-obvious paths.
+- The product should not promise employment, admission, salary growth, or psychological outcomes.
+
+## Why This Project Is Different
+
+Most resume tools focus on polishing wording. This project focuses on diagnosis:
+
+- What capabilities are actually evidenced by the resume?
+- Which claims are weak, generic, or unsupported?
+- What next move is realistic given the user's current profile?
+- Which direction may be worth exploring beyond the user's default path?
+
+## Quick Start
 
 ```bash
 npm ci
 npm start
 ```
 
-默认访问：
+Open:
 
 ```text
 http://localhost:4173
 ```
 
-## 环境变量
+The production app lives under:
+
+```text
+apps/career-overview
+```
+
+## Environment Variables
+
+Create a local `.env` file or configure the same variables on your deployment platform.
 
 ```text
 DEEPSEEK_API_KEY=
@@ -54,9 +79,9 @@ MAX_FILE_BYTES=6000000
 MAX_BODY_BYTES=12000000
 ```
 
-`DEEPSEEK_API_KEY` 只能放在服务端环境变量或本地 `.env` 中，不能写进前端文件。
+Keep `DEEPSEEK_API_KEY` on the server side only. Do not put real API keys in frontend files or commit them to GitHub.
 
-## API
+## API Surface
 
 - `GET /api/health`
 - `GET /api/test-ai`
@@ -66,9 +91,9 @@ MAX_BODY_BYTES=12000000
 - `POST /api/analyze-ability`
 - `POST /api/chat-resume`
 
-## 上线
+## Deploying To Render
 
-推荐使用 Render Web Service：
+Recommended Render Web Service settings:
 
 ```text
 Root Directory: apps/career-overview
@@ -76,4 +101,32 @@ Build Command: npm ci
 Start Command: npm start
 ```
 
-上线后先检查 `/api/health`，确认 `hasDeepSeekKey` 为 `true`。
+After deployment, check:
+
+```text
+/api/health
+```
+
+Confirm that `hasDeepSeekKey` is `true` before sharing the app publicly.
+
+## Privacy And Safety Notes
+
+Resume content can contain sensitive personal information. This MVP is designed for server-side model calls, but production use should add:
+
+- a visible privacy notice,
+- retention limits for uploaded resumes,
+- rate limiting,
+- access control for private beta users,
+- clearer disclaimers for career, education, and psychological boundaries.
+
+## Roadmap
+
+- Add a public demo link and screenshots to this README.
+- Add sample input and sample output for a safe fictional resume.
+- Add a privacy notice page for beta users.
+- Add lightweight analytics for conversion and drop-off points.
+- Package the analysis framework as reusable prompts and evaluation cases.
+
+## Related Positioning
+
+This repository is part of a broader set of AI communication, public-opinion, and career-support tools by [CEXU FU](https://github.com/cexufu).
