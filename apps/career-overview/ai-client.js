@@ -57,6 +57,20 @@ async function logout() {
   });
 }
 
+async function getProfile() {
+  return requestJson("/api/profile", {
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+async function saveProfile(payload) {
+  return requestJson("/api/profile", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
 async function listHistory() {
   return requestJson("/api/history", {
     signal: AbortSignal.timeout(20_000),

@@ -167,6 +167,81 @@ function closeAuthModal() {
   qs("#authModal").classList.remove("open");
 }
 
+function openProfileModal() {
+  if (!state.user) {
+    openAuthModal("login");
+    showToast("请先登录，再维护长期档案。");
+    return;
+  }
+  qs("#profileModal").classList.add("open");
+  loadProfile({ silent: true });
+}
+
+function closeProfileModal() {
+  qs("#profileModal").classList.remove("open");
+}
+
+function profileListToText(value) {
+  return Array.isArray(value) ? value.join("\n") : "";
+}
+
+function parseProfileList(value) {
+  return String(value || "")
+    .split(/[，,、\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, arr) => arr.indexOf(item) === index)
+    .slice(0, 16);
+}
+
+function renderProfileForm(profile = {}) {
+  qs("#profileGoalInput").value = profile.currentGoal || "";
+  qs("#profilePreferredInput").value = profileListToText(profile.preferredDirections);
+  qs("#profileRejectedInput").value = profileListToText(profile.rejectedDirections);
+  qs("#profileNotesInput").value = profile.notes || "";
+  const snapshot = qs("#profileSnapshot");
+  const lines = [
+    profile.latestIdentity ? "最近画像：" + profile.latestIdentity : "",
+    profile.latestDestination ? "最近方向：" + profile.latestDestination : "",
+    profile.latestStage ? "最近阶段：" + profile.latestStage : "",
+    profile.updatedAt ? "更新时间：" + new Date(profile.updatedAt).toLocaleString("zh-CN") : "",
+  ].filter(Boolean);
+  snapshot.hidden = !lines.length;
+  snapshot.innerHTML = lines.map((line) => "<p>" + escapeHtml(line) + "</p>").join("");
+}
+
+async function loadProfile(options = {}) {
+  if (!state.user) return;
+  try {
+    const result = await window.ResumeInsightAPI.getProfile();
+    state.longTermProfile = result.profile || null;
+    renderProfileForm(state.longTermProfile || {});
+  } catch (error) {
+    if (!options.silent) showToast(error.message);
+  }
+}
+
+async function saveProfile() {
+  if (!state.user) return;
+  try {
+    qs("#profileSaveBtn").disabled = true;
+    const result = await window.ResumeInsightAPI.saveProfile({
+      currentGoal: qs("#profileGoalInput").value.trim(),
+      preferredDirections: parseProfileList(qs("#profilePreferredInput").value),
+      rejectedDirections: parseProfileList(qs("#profileRejectedInput").value),
+      notes: qs("#profileNotesInput").value.trim(),
+    });
+    state.longTermProfile = result.profile || null;
+    if (result.user) state.user = result.user;
+    renderAuthState();
+    renderProfileForm(state.longTermProfile || {});
+    showToast(result.message || "档案已保存");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    qs("#profileSaveBtn").disabled = false;
+  }
+}
 function openHistoryModal() {
   if (!state.user) {
     openAuthModal("login");
@@ -1253,6 +1328,10 @@ function bindEvents() {
   qs("#clearBtn").addEventListener("click", clearAll);
   qs("#exportBtn").addEventListener("click", exportJson);
   qs("#authBtn").addEventListener("click", () => openAuthModal("login"));
+  qs("#profileBtn").addEventListener("click", openProfileModal);
+  qs("#profileModalScrim").addEventListener("click", closeProfileModal);
+  qs("#closeProfileBtn").addEventListener("click", closeProfileModal);
+  qs("#profileSaveBtn").addEventListener("click", saveProfile);
   qs("#historyBtn").addEventListener("click", async () => {
     openHistoryModal();
     await loadHistory({ silent: true });

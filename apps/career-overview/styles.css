@@ -226,6 +226,23 @@ button:disabled {
   line-height: 1.65;
 }
 
+
+.profile-snapshot {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(22, 116, 91, 0.18);
+  border-radius: 8px;
+  padding: 12px;
+  color: #1f4f43;
+  background: #eef8f3;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.profile-snapshot p {
+  margin: 0;
+}
+
 .history-list {
   display: grid;
   gap: 12px;

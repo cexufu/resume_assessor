@@ -205,6 +205,76 @@ function validateEmailAndPassword(email, password) {
   return { normalizedEmail, plainPassword };
 }
 
+function normalizeProfileList(value, limit = 12) {
+  const source = Array.isArray(value) ? value : String(value || "").split(new RegExp("[,，、\\n]"));
+  const result = [];
+  for (const item of source) {
+    const text = normalizeText(item, 60);
+    if (text && !result.includes(text)) result.push(text);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function defaultLongTermProfile() {
+  return {
+    currentGoal: "",
+    preferredDirections: [],
+    rejectedDirections: [],
+    notes: "",
+    latestIdentity: "",
+    latestDestination: "",
+    latestStage: "",
+    lastAnalysisId: "",
+    updatedAt: "",
+  };
+}
+
+function normalizeLongTermProfile(profile = {}) {
+  const fallback = defaultLongTermProfile();
+  return {
+    ...fallback,
+    currentGoal: normalizeText(profile.currentGoal, 160),
+    preferredDirections: normalizeProfileList(profile.preferredDirections, 16),
+    rejectedDirections: normalizeProfileList(profile.rejectedDirections, 16),
+    notes: normalizeText(profile.notes, 1200),
+    latestIdentity: normalizeText(profile.latestIdentity, 160),
+    latestDestination: normalizeText(profile.latestDestination, 160),
+    latestStage: normalizeText(profile.latestStage, 160),
+    lastAnalysisId: normalizeText(profile.lastAnalysisId, 40),
+    updatedAt: normalizeText(profile.updatedAt, 40),
+  };
+}
+
+function publicLongTermProfile(user) {
+  return normalizeLongTermProfile(user?.longTermProfile || {});
+}
+
+function updateLongTermProfileFromAnalysis(user, entry, report, careerProfile) {
+  if (!user || !entry) return null;
+  const current = normalizeLongTermProfile(user.longTermProfile || {});
+  const basic = careerProfile?.basic || {};
+  const directions = Array.isArray(report?.suitableDirections) ? report.suitableDirections : [];
+  const possibilities = Array.isArray(report?.newPossibilities) ? report.newPossibilities : [];
+  const preferredDirections = normalizeProfileList([
+    ...current.preferredDirections,
+    basic.targetDirection,
+    ...directions.map((item) => item?.title),
+    ...possibilities.map((item) => item?.title),
+  ], 16);
+  user.longTermProfile = normalizeLongTermProfile({
+    ...current,
+    currentGoal: current.currentGoal || basic.targetGoal || basic.targetDirection || "",
+    preferredDirections,
+    latestIdentity: report?.identitySnapshot?.who || current.latestIdentity,
+    latestDestination: report?.identitySnapshot?.destination || current.latestDestination,
+    latestStage: report?.identitySnapshot?.stage || current.latestStage,
+    lastAnalysisId: entry.id,
+    updatedAt: new Date().toISOString(),
+  });
+  return user.longTermProfile;
+}
+
 function safeUser(user) {
   const history = Array.isArray(user?.history) ? user.history : [];
   return {
@@ -4267,6 +4337,42 @@ async function handleAuthMe(req, res) {
   });
 }
 
+async function handleProfileGet(req, res) {
+  const context = requireAuth(req, res);
+  if (!context) return;
+  sendJson(res, 200, {
+    ok: true,
+    profile: publicLongTermProfile(context.user),
+  });
+}
+
+async function handleProfileSave(req, res) {
+  try {
+    const context = requireAuth(req, res);
+    if (!context) return;
+    const payload = await readJson(req);
+    const current = normalizeLongTermProfile(context.user.longTermProfile || {});
+    context.user.longTermProfile = normalizeLongTermProfile({
+      ...current,
+      currentGoal: payload.currentGoal ?? current.currentGoal,
+      preferredDirections: payload.preferredDirections ?? current.preferredDirections,
+      rejectedDirections: payload.rejectedDirections ?? current.rejectedDirections,
+      notes: payload.notes ?? current.notes,
+      updatedAt: new Date().toISOString(),
+    });
+    context.user.lastSeenAt = new Date().toISOString();
+    saveAuthStore(context.store);
+    sendJson(res, 200, {
+      ok: true,
+      profile: publicLongTermProfile(context.user),
+      user: safeUser(context.user),
+      message: "档案已保存。",
+    });
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+  }
+}
+
 async function handleHistoryList(req, res) {
   const context = requireAuth(req, res);
   if (!context) return;
@@ -4422,6 +4528,16 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "GET" && req.url === "/api/test-ai") {
     handleTestAi(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/api/profile") {
+    handleProfileGet(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/profile") {
+    handleProfileSave(req, res);
     return;
   }
 

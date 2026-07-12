@@ -18,6 +18,7 @@
         </div>
         <div class="top-actions">
           <button class="ghost-button" id="historyBtn" type="button" hidden>历史报告</button>
+          <button class="ghost-button" id="profileBtn" type="button" hidden>我的档案</button>
           <a class="ghost-link" id="nextStepTopLink" href="./next-step.html" hidden>进入下一程</a>
           <button class="ghost-button" id="authBtn" type="button">登录 / 注册</button>
           <button class="ghost-button" id="logoutBtn" type="button" hidden>退出</button>
@@ -340,6 +341,47 @@
 
           <div class="button-row">
             <button class="primary-button" id="authSubmitBtn" type="button">登录</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="intake-modal" id="profileModal" aria-label="我的长期档案">
+        <div class="modal-scrim" id="profileModalScrim" aria-hidden="true"></div>
+        <div class="intake-panel intake-card profile-card" role="dialog" aria-modal="true" aria-labelledby="profileDialogTitle">
+          <div class="modal-titlebar">
+            <div>
+              <span class="eyebrow">Profile</span>
+              <h2 id="profileDialogTitle">我的长期档案</h2>
+            </div>
+            <button class="ghost-button modal-close" id="closeProfileBtn" type="button">关闭</button>
+          </div>
+
+          <p class="auth-copy">这里保存你的长期目标、正在考虑的方向和明确不想走的方向。后续分析会逐步围绕这份档案延续理解。</p>
+
+          <label class="field">
+            <span>当前最重要的目标</span>
+            <input id="profileGoalInput" type="text" maxlength="160" placeholder="例如：准备秋招，优先比较产品、商业化和内容安全方向" />
+          </label>
+
+          <label class="field">
+            <span>正在考虑的方向</span>
+            <textarea id="profilePreferredInput" class="compact-textarea" maxlength="500" placeholder="一行一个，或用逗号分隔。例如：技术产品经理、内容安全策略、商业化产品"></textarea>
+          </label>
+
+          <label class="field">
+            <span>暂时不想考虑的方向</span>
+            <textarea id="profileRejectedInput" class="compact-textarea" maxlength="500" placeholder="例如：纯算法工程师、销售压力太强的岗位"></textarea>
+          </label>
+
+          <label class="field">
+            <span>长期备注</span>
+            <textarea id="profileNotesInput" maxlength="1200" placeholder="记录你对自己的判断、导师反馈、HR 反馈、阶段性变化。"></textarea>
+          </label>
+
+          <div class="profile-snapshot" id="profileSnapshot" hidden></div>
+
+          <div class="button-row">
+            <button class="primary-button" id="profileSaveBtn" type="button">保存档案</button>
           </div>
         </div>
       </section>
