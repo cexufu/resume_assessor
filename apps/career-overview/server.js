@@ -632,7 +632,9 @@ function getGoalLibraryItems(goalMode = "career", library = loadCareerLibrary())
 }
 
 function rankGoalLibraryItems(careerProfile, goalMode = "career", limit = 6) {
-  return rankLibraryItems(getGoalLibraryItems(goalMode), profileTexts(careerProfile), limit);
+  return rankLibraryItems(getGoalLibraryItems(goalMode), profileTexts(careerProfile), Math.max(limit * 4, limit))
+    .filter((item) => passesRoleGate(item?.title || item?.name, careerProfile))
+    .slice(0, limit);
 }
 
 function hypothesisTexts(hypotheses = {}) {
@@ -679,9 +681,11 @@ function rankLibraryItemsWithCalibration(items, primaryHaystack, secondaryHaysta
 function buildOverviewLayerLibraryContext(careerProfile, goalMode = "career", hypotheses = null) {
   const primaryText = hypothesisTexts(hypotheses);
   const secondaryText = profileTexts(careerProfile);
-  const rankedRoutes = primaryText
-    ? rankLibraryItemsWithCalibration(getGoalLibraryItems(goalMode), primaryText, secondaryText, 8)
-    : rankGoalLibraryItems(careerProfile, goalMode, 8);
+  const rankedRoutes = (primaryText
+    ? rankLibraryItemsWithCalibration(getGoalLibraryItems(goalMode), primaryText, secondaryText, 24)
+    : rankGoalLibraryItems(careerProfile, goalMode, 24))
+    .filter((item) => passesRoleGate(item?.title || item?.name, careerProfile))
+    .slice(0, 8);
   return {
     careerRoutes: rankedRoutes.map((item) => ({
       title: item?.title || "",
@@ -2273,7 +2277,9 @@ function buildCatalogContext(careerProfile, moduleType = "career", limit = 6) {
   const text = profileTexts(careerProfile);
   if (moduleType === "study") return rankLibraryItems(library.studyDirections, text, limit);
   if (moduleType === "ability") return rankLibraryItems(library.abilityAxes, text, limit);
-  return rankLibraryItems(library.careerRoutes, text, limit);
+  return rankLibraryItems(library.careerRoutes, text, Math.max(limit * 4, limit))
+    .filter((item) => passesRoleGate(item?.title || item?.name, careerProfile))
+    .slice(0, limit);
 }
 
 function uniqueNonEmpty(items, limit = 6) {
@@ -2374,8 +2380,64 @@ function findDirectionEvidence(title, careerProfile, limit = 2, goalMode = infer
   return uniqueNonEmpty(matches, limit);
 }
 
+
+function buildRoleGateText(careerProfile) {
+  return [
+    profileTexts(careerProfile),
+    ...buildDirectionSupportPool(careerProfile),
+  ].join(" ").toLowerCase();
+}
+
+function textHasAny(text, terms = []) {
+  const value = String(text || "").toLowerCase();
+  return terms.some((term) => value.includes(String(term || "").toLowerCase()));
+}
+
+const roleGateRules = [
+  {
+    pattern: /(算法工程师|机器学习工程师|NLP 工程师|计算机视觉工程师|大模型工程师|AI 研究员|机器人算法工程师|飞控工程师)/,
+    evidence: ["算法", "模型", "机器学习", "深度学习", "NLP", "自然语言", "计算机视觉", "Python", "代码", "编程", "数据建模", "论文", "科研", "竞赛", "数学", "统计", "计算机"],
+  },
+  {
+    pattern: /(内容安全|内容审核|审核手册|热点风险|安全策略|平台治理)/,
+    evidence: ["内容安全", "审核", "规则", "标准", "平台治理", "治理", "合规", "风控", "舆情", "热点", "公共事件", "社区", "政策", "质检", "申诉"],
+  },
+  {
+    pattern: /(安全研发工程师|安全工程师|渗透测试工程师|安全运营分析师|数据安全顾问)/,
+    evidence: ["安全", "网络", "攻防", "渗透", "系统", "代码", "编程", "计算机", "隐私", "数据安全", "合规", "风控", "应急"],
+  },
+  {
+    pattern: /(产品经理|商业化产品经理|安全产品经理|技术产品经理|AI 产品经理|机器人产品经理|汽车产品经理|无人机产品经理)/,
+    evidence: ["产品", "需求", "用户", "体验", "原型", "项目", "平台", "商业化", "计算机", "开发", "技术", "创业", "增长", "运营"],
+  },
+  {
+    pattern: /(技术创业者|创业)/,
+    evidence: ["创业", "商业模式", "用户", "产品", "项目", "融资", "市场", "客户", "计算机", "开发", "技术", "竞赛"],
+  },
+  {
+    pattern: /(精算师)/,
+    evidence: ["精算", "保险", "数学", "统计", "概率", "风险模型", "金融工程", "建模"],
+  },
+  {
+    pattern: /(高校讲师|副教授|教授|助理研究员|副研究员|研究员|企业研究院研究员)/,
+    evidence: ["论文", "科研", "课题", "实验", "研究", "发表", "基金", "博士", "硕士", "专利", "报告"],
+  },
+  {
+    pattern: /(法官|检察官|诉讼律师|非诉律师|并购律师|国际法律师|商法律师|律师)/,
+    evidence: ["法律", "法学", "律师", "法院", "检察", "司法", "合同", "诉讼", "非诉", "并购", "合规", "法考", "案例"],
+  },
+];
+
+function passesRoleGate(title, careerProfile) {
+  const value = String(title || "").trim();
+  if (!value) return false;
+  const rule = roleGateRules.find((item) => item.pattern.test(value));
+  if (!rule) return true;
+  return textHasAny(buildRoleGateText(careerProfile), rule.evidence);
+}
+
 function hasDirectionSupport(title, careerProfile, goalMode = inferGoalMode(careerProfile)) {
-  return findDirectionEvidence(title, careerProfile, 1, goalMode).length > 0;
+  return passesRoleGate(title, careerProfile) && findDirectionEvidence(title, careerProfile, 1, goalMode).length > 0;
 }
 
 function ensureSectionNotice(report, key, message) {
