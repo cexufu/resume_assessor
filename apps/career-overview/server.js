@@ -996,6 +996,8 @@ const qaStudioSystemPrompt = [
   "你是问答工作台生成器。",
   "你只基于 career_profile、application_draft、当前问题和目标上下文，生成一份简洁、专业、像用户自己的回答草稿。",
   "不要写成长报告，不要泛泛夸奖，不要虚构经历。",
+  "先判断这道题到底在考什么，再选择证据；证据不足时要把缺口说清楚，方便用户继续追问和补充。",
+  "网申问题不要一次性铺太多，优先处理高频问题：自我介绍、为什么这个方向、为什么我们、优势、短板、挑战经历、团队合作、未来规划。",
   "回答必须能看出用户想要什么、为什么想要、以及自己现在凭什么能要。",
   "默认使用“正言 - 分点 - 佐证 - 强化”框架：先给确定性回答，再分点展开，每个点都要落到真实证据，最后再收束强化。",
   "没有足够证据时，要如实说明，而不是编造。",
@@ -1005,7 +1007,7 @@ const qaStudioSystemPrompt = [
 ].join("\n");
 
 const qaStudioJsonContract = [
-  "JSON 顶层字段必须为：mainAxis, opening, pointBlocks, reinforcement, longAnswer, followUpPrompt.",
+  "JSON 顶层字段必须为：mainAxis, opening, pointBlocks, reinforcement, longAnswer, followUpPrompt, evidenceLines, discussionPrompts.",
   "mainAxis：1-2 句，说明这题应该怎么答。",
   "opening：1 段，用正言先给出确定性回答，控制在 30-90 个中文字符。",
   "pointBlocks：2-3 项，每项字段：heading, point, evidence。heading 优先围绕“我想要什么 / 为什么想要 / 我怎么能要 / 我接下来怎么补”组织。",
@@ -1013,6 +1015,8 @@ const qaStudioJsonContract = [
   "reinforcement：1 段，用来收束和强化匹配度、成长动机或下一步决心，控制在 30-90 个中文字符。",
   "longAnswer：1 段，适合网申或书面表达，控制在 180-320 个中文字符。",
   "followUpPrompt：1 句，提醒用户下一步最值得补哪类信息或追问什么。",
+  "evidenceLines：1-3 条，列出当前最可用的真实证据；如果证据不足，要写明缺什么。",
+  "discussionPrompts：2-4 条，告诉用户下一轮可以补充、讨论或追问什么，不要做成很重的任务清单。",
   "不要输出 markdown，不要输出表格。",
 ].join("\n");
 

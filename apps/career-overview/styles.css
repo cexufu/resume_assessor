@@ -1766,3 +1766,54 @@ textarea {
     max-width: 100%;
   }
 }
+
+.field.verified input,
+.field.verified textarea {
+  border-color: rgba(22, 116, 91, 0.24);
+  background: #fbfefd;
+}
+
+.field.needs-confirm input,
+.field.needs-confirm textarea {
+  border-color: rgba(180, 123, 18, 0.34);
+  background: #fffaf0;
+}
+
+.field.missing input,
+.field.missing textarea {
+  border-color: rgba(148, 163, 184, 0.42);
+  background: #f8fafc;
+}
+
+.field-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 8px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 820;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.field-status.verified {
+  color: #0f6b55;
+  background: #dff3eb;
+}
+
+.field-status.needs-confirm {
+  color: #8a5a08;
+  background: #fff0c7;
+}
+
+.field-status.missing {
+  color: #64748b;
+  background: #e8edf3;
+}
+
+.qa-discussion-card {
+  border-color: rgba(22, 116, 91, 0.22);
+  background: #f4fbf8;
+}

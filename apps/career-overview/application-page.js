@@ -26,6 +26,73 @@ function isUsefulText(value) {
 function uniqueNonEmpty(values, limit = 6) {
   return Array.from(new Set((Array.isArray(values) ? values : []).map((item) => String(item ?? "").trim()).filter(Boolean))).slice(0, limit);
 }
+function normalizeForMatch(value) {
+  return String(value ?? "")
+    .replace(/[\s，。；、：:;,.!！?？()（）【】\[\]{}<>《》"'“”‘’\-_]+/g, "")
+    .toLowerCase();
+}
+
+function getResumeSourceText() {
+  return String(state.analysis?.extractedResumeText || "");
+}
+
+function getProfileSourceText() {
+  return JSON.stringify(state.analysis?.careerProfile || {});
+}
+
+function getFieldStatus(value) {
+  const raw = fallbackText(value);
+  if (!raw) {
+    return { key: "missing", label: "缺失", hint: "需要你补充，暂时不要直接复制使用" };
+  }
+  const normalized = normalizeForMatch(raw);
+  const resumeText = normalizeForMatch(getResumeSourceText());
+  const profileText = normalizeForMatch(getProfileSourceText());
+  const isSpecificEnough = normalized.length >= 2;
+  if (isSpecificEnough && (resumeText.includes(normalized) || profileText.includes(normalized))) {
+    return { key: "verified", label: "已识别", hint: "系统在原始材料或职业画像里找到了对应信息" };
+  }
+  return { key: "needs-confirm", label: "待确认", hint: "这是系统推断或整理后的表达，建议你核对准确性" };
+}
+
+function renderStatusBadge(value) {
+  const status = getFieldStatus(value);
+  return "<small class=\"field-status " + status.key + "\" title=\"" + escapeHtml(status.hint) + "\">" + escapeHtml(status.label) + "</small>";
+}
+
+function fieldStatusClass(value) {
+  return getFieldStatus(value).key;
+}
+
+function collectVerificationStats(draft) {
+  const values = [];
+  const basic = draft.basicProfile || {};
+  ["fullName", "email", "phone", "age", "region", "educationStage", "major", "targetGoal", "targetDirection", "oneLineIntro", "currentThought", "anxiety"]
+    .forEach((key) => values.push(basic[key]));
+  (Array.isArray(draft.educationEntries) ? draft.educationEntries : []).forEach((item) => {
+    ["school", "degree", "major", "period", "highlights"].forEach((key) => values.push(item?.[key]));
+  });
+  (Array.isArray(draft.publicationEntries) ? draft.publicationEntries : []).forEach((item) => {
+    ["title", "type", "venue", "year", "note"].forEach((key) => values.push(item?.[key]));
+  });
+  (Array.isArray(draft.achievementEntries) ? draft.achievementEntries : []).forEach((item) => {
+    ["title", "type", "year", "note"].forEach((key) => values.push(item?.[key]));
+  });
+  (Array.isArray(draft.experienceEntries) ? draft.experienceEntries : []).forEach((item) => {
+    ["title", "evidence", "polished"].forEach((key) => values.push(item?.[key]));
+  });
+  (Array.isArray(draft.storyBank) ? draft.storyBank : []).forEach((item) => {
+    ["title", "situation", "task", "action", "result"].forEach((key) => values.push(item?.[key]));
+  });
+  return values.reduce((stats, value) => {
+    const status = getFieldStatus(value).key;
+    if (status === "verified") stats.verified += 1;
+    if (status === "needs-confirm") stats.needsConfirm += 1;
+    if (status === "missing") stats.missing += 1;
+    return stats;
+  }, { verified: 0, needsConfirm: 0, missing: 0 });
+}
+
 
 function showToast(message) {
   const toast = qs("#toast");
@@ -309,8 +376,8 @@ function renderBasicGrid() {
     ["anxiety", "当前课题", "你最想解决的问题是什么", true],
   ];
   qs("#basicDraftGrid").innerHTML = fields.map(([key, label, placeholder, wide]) => `
-    <label class="field ${wide ? "wide" : ""}">
-      <span>${escapeHtml(label)}</span>
+    <label class="field ${wide ? "wide" : ""} ${fieldStatusClass(basic[key])}">
+      <span>${escapeHtml(label)}${renderStatusBadge(basic[key])}</span>
       ${wide
         ? `<textarea data-basic-key="${escapeHtml(key)}" class="compact-textarea" placeholder="${escapeHtml(placeholder)}">${escapeHtml(fallbackText(basic[key]))}</textarea>`
         : `<input data-basic-key="${escapeHtml(key)}" type="text" maxlength="260" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(fallbackText(basic[key]))}" />`}
@@ -330,11 +397,11 @@ function renderEducationEntries() {
         <strong>${escapeHtml(fallbackText(item.school, `教育经历 ${index + 1}`))}</strong>
       </div>
       <div class="draft-entry-grid">
-        <label class="field"><span>学校</span><input data-education-key="school" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.school))}" /></label>
-        <label class="field"><span>学历</span><input data-education-key="degree" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.degree))}" /></label>
-        <label class="field"><span>专业</span><input data-education-key="major" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.major))}" /></label>
-        <label class="field"><span>时间</span><input data-education-key="period" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.period))}" /></label>
-        <label class="field wide"><span>亮点</span><textarea data-education-key="highlights" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.highlights))}</textarea></label>
+        <label class="field ${fieldStatusClass(item.school)}"><span>学校${renderStatusBadge(item.school)}</span><input data-education-key="school" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.school))}" /></label>
+        <label class="field ${fieldStatusClass(item.degree)}"><span>学历${renderStatusBadge(item.degree)}</span><input data-education-key="degree" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.degree))}" /></label>
+        <label class="field ${fieldStatusClass(item.major)}"><span>专业${renderStatusBadge(item.major)}</span><input data-education-key="major" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.major))}" /></label>
+        <label class="field ${fieldStatusClass(item.period)}"><span>时间${renderStatusBadge(item.period)}</span><input data-education-key="period" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.period))}" /></label>
+        <label class="field wide ${fieldStatusClass(item.highlights)}"><span>亮点${renderStatusBadge(item.highlights)}</span><textarea data-education-key="highlights" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.highlights))}</textarea></label>
       </div>
     </article>
   `).join("");
@@ -352,11 +419,11 @@ function renderPublicationEntries() {
         <strong>${escapeHtml(fallbackText(item.title, `发表 / 作品 ${index + 1}`))}</strong>
       </div>
       <div class="draft-entry-grid">
-        <label class="field"><span>标题</span><input data-publication-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" /></label>
-        <label class="field"><span>类型</span><input data-publication-key="type" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.type))}" /></label>
-        <label class="field"><span>载体 / 平台</span><input data-publication-key="venue" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.venue))}" /></label>
-        <label class="field"><span>年份</span><input data-publication-key="year" data-id="${escapeHtml(item.id)}" type="text" maxlength="60" value="${escapeHtml(fallbackText(item.year))}" /></label>
-        <label class="field wide"><span>说明</span><textarea data-publication-key="note" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.note))}</textarea></label>
+        <label class="field ${fieldStatusClass(item.title)}"><span>标题${renderStatusBadge(item.title)}</span><input data-publication-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" /></label>
+        <label class="field ${fieldStatusClass(item.type)}"><span>类型${renderStatusBadge(item.type)}</span><input data-publication-key="type" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.type))}" /></label>
+        <label class="field ${fieldStatusClass(item.venue)}"><span>载体 / 平台${renderStatusBadge(item.venue)}</span><input data-publication-key="venue" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.venue))}" /></label>
+        <label class="field ${fieldStatusClass(item.year)}"><span>年份${renderStatusBadge(item.year)}</span><input data-publication-key="year" data-id="${escapeHtml(item.id)}" type="text" maxlength="60" value="${escapeHtml(fallbackText(item.year))}" /></label>
+        <label class="field wide ${fieldStatusClass(item.note)}"><span>说明${renderStatusBadge(item.note)}</span><textarea data-publication-key="note" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.note))}</textarea></label>
       </div>
     </article>
   `).join("");
@@ -374,10 +441,10 @@ function renderAchievementEntries() {
         <strong>${escapeHtml(fallbackText(item.title, `奖项 / 成果 ${index + 1}`))}</strong>
       </div>
       <div class="draft-entry-grid">
-        <label class="field"><span>标题</span><input data-achievement-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" /></label>
-        <label class="field"><span>类型</span><input data-achievement-key="type" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.type))}" /></label>
-        <label class="field"><span>年份</span><input data-achievement-key="year" data-id="${escapeHtml(item.id)}" type="text" maxlength="60" value="${escapeHtml(fallbackText(item.year))}" /></label>
-        <label class="field wide"><span>说明</span><textarea data-achievement-key="note" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.note))}</textarea></label>
+        <label class="field ${fieldStatusClass(item.title)}"><span>标题${renderStatusBadge(item.title)}</span><input data-achievement-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" /></label>
+        <label class="field ${fieldStatusClass(item.type)}"><span>类型${renderStatusBadge(item.type)}</span><input data-achievement-key="type" data-id="${escapeHtml(item.id)}" type="text" maxlength="120" value="${escapeHtml(fallbackText(item.type))}" /></label>
+        <label class="field ${fieldStatusClass(item.year)}"><span>年份${renderStatusBadge(item.year)}</span><input data-achievement-key="year" data-id="${escapeHtml(item.id)}" type="text" maxlength="60" value="${escapeHtml(fallbackText(item.year))}" /></label>
+        <label class="field wide ${fieldStatusClass(item.note)}"><span>说明${renderStatusBadge(item.note)}</span><textarea data-achievement-key="note" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.note))}</textarea></label>
       </div>
     </article>
   `).join("");
@@ -399,20 +466,20 @@ function renderExperienceList() {
         </div>
       </div>
       <div class="draft-entry-grid">
-        <label class="field">
-          <span>标题</span>
+        <label class="field ${fieldStatusClass(item.title)}">
+          <span>标题${renderStatusBadge(item.title)}</span>
           <input data-entry-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" />
         </label>
         <label class="field">
           <span>能力标签</span>
           <input data-entry-key="tags" data-id="${escapeHtml(item.id)}" type="text" maxlength="260" value="${escapeHtml((Array.isArray(item.tags) ? item.tags : []).join(" / "))}" />
         </label>
-        <label class="field wide">
-          <span>事实底稿</span>
+        <label class="field wide ${fieldStatusClass(item.evidence)}">
+          <span>事实底稿${renderStatusBadge(item.evidence)}</span>
           <textarea data-entry-key="evidence" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.evidence))}</textarea>
         </label>
-        <label class="field wide">
-          <span>申请表达</span>
+        <label class="field wide ${fieldStatusClass(item.polished)}">
+          <span>申请表达${renderStatusBadge(item.polished)}</span>
           <textarea data-entry-key="polished" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.polished))}</textarea>
         </label>
       </div>
@@ -435,28 +502,28 @@ function renderStoryBank() {
         </div>
       </div>
       <div class="draft-entry-grid">
-        <label class="field">
-          <span>故事标题</span>
+        <label class="field ${fieldStatusClass(item.title)}">
+          <span>故事标题${renderStatusBadge(item.title)}</span>
           <input data-story-key="title" data-id="${escapeHtml(item.id)}" type="text" maxlength="160" value="${escapeHtml(fallbackText(item.title))}" />
         </label>
         <label class="field">
           <span>能力标签</span>
           <input data-story-key="skills" data-id="${escapeHtml(item.id)}" type="text" maxlength="260" value="${escapeHtml((Array.isArray(item.skills) ? item.skills : []).join(" / "))}" />
         </label>
-        <label class="field wide">
-          <span>场景</span>
+        <label class="field wide ${fieldStatusClass(item.situation)}">
+          <span>场景${renderStatusBadge(item.situation)}</span>
           <textarea data-story-key="situation" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.situation))}</textarea>
         </label>
-        <label class="field wide">
-          <span>任务</span>
+        <label class="field wide ${fieldStatusClass(item.task)}">
+          <span>任务${renderStatusBadge(item.task)}</span>
           <textarea data-story-key="task" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.task))}</textarea>
         </label>
-        <label class="field wide">
-          <span>动作</span>
+        <label class="field wide ${fieldStatusClass(item.action)}">
+          <span>动作${renderStatusBadge(item.action)}</span>
           <textarea data-story-key="action" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.action))}</textarea>
         </label>
-        <label class="field wide">
-          <span>结果</span>
+        <label class="field wide ${fieldStatusClass(item.result)}">
+          <span>结果${renderStatusBadge(item.result)}</span>
           <textarea data-story-key="result" data-id="${escapeHtml(item.id)}" class="compact-textarea">${escapeHtml(fallbackText(item.result))}</textarea>
         </label>
       </div>
@@ -468,9 +535,8 @@ function renderDraft() {
   const progress = calculateProgress(state.draft);
   qs("#applicationProgressLabel").textContent = `${progress}%`;
   qs("#applicationProgressBar").style.width = `${progress}%`;
-  qs("#applicationSummaryCopy").textContent = progress >= 70
-    ? "你已经把很多重要线索放进底稿里了，后面的网申和问答会更有底气。"
-    : "先把最重要的几块写清楚，后面的表达会顺很多。";
+  const verificationStats = collectVerificationStats(state.draft);
+  qs("#applicationSummaryCopy").textContent = `已识别 ${verificationStats.verified} 项，待确认 ${verificationStats.needsConfirm} 项，缺失 ${verificationStats.missing} 项。先确认标黄项，比继续多填更重要。`;
   const modeLine = qs("#applicationModeLine");
   if (state.draft?.meta?.fallback) {
     modeLine.hidden = false;

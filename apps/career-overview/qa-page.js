@@ -1,14 +1,80 @@
-const analysisStorageKey = "resume_insight_career_analysis";
+﻿const analysisStorageKey = "resume_insight_career_analysis";
 const applicationDraftStorageKey = "resume_partner_application_draft";
 const qaDraftStorageKey = "resume_partner_qa_draft";
 
 const qaTemplates = [
-  { id: "why_role", label: "Why this role", prompt: "为什么你适合这个岗位？" },
-  { id: "why_company", label: "Why this company", prompt: "为什么你想来这家公司？" },
-  { id: "self_intro", label: "自我介绍", prompt: "请做一个 1 分钟自我介绍。" },
-  { id: "strength", label: "你的优势", prompt: "你最突出的优势是什么？" },
-  { id: "weakness", label: "你的短板", prompt: "你的短板是什么，你怎么面对它？" },
-  { id: "why_major", label: "Why this major", prompt: "为什么你适合申请这个专业？" },
+  {
+    id: "self_intro",
+    label: "自我介绍",
+    prompt: "请做一个 1 分钟自我介绍。",
+    intent: "考察你能否把背景、能力和目标讲成一条清楚的线。",
+    evidenceNeed: "1 条最能代表你的经历，加上当前目标。",
+    missingHint: "如果故事不够，先补一个项目的背景、你的动作和结果。",
+    keywords: ["经历", "能力", "目标", "项目", "优势"],
+  },
+  {
+    id: "why_role",
+    label: "为什么这个方向",
+    prompt: "为什么你适合这个岗位或项目方向？",
+    intent: "考察目标是否真实、能力是否对位、不是随便投。",
+    evidenceNeed: "1 条相关经历 + 1 个能力证据 + 1 句下一步成长计划。",
+    missingHint: "如果方向还泛，要补你为什么被这个问题吸引，以及你做过什么相邻事情。",
+    keywords: ["方向", "岗位", "能力", "判断", "策略", "分析", "推进"],
+  },
+  {
+    id: "why_company",
+    label: "为什么我们",
+    prompt: "为什么你想来这家公司、学校或项目？",
+    intent: "考察你是否理解对方，也能说明自己和对方的连接。",
+    evidenceNeed: "对方特点 + 自己经历里的对应能力，避免只说喜欢。",
+    missingHint: "如果缺少对方信息，先补目标机构、项目、业务或导师的具体吸引点。",
+    keywords: ["公司", "学校", "项目", "业务", "研究", "价值", "匹配"],
+  },
+  {
+    id: "strength",
+    label: "最大优势",
+    prompt: "你最突出的优势是什么？",
+    intent: "考察你能否把优势说成可验证的能力，而不是性格形容词。",
+    evidenceNeed: "一个能力名 + 一个具体场景 + 一个结果变化。",
+    missingHint: "如果只有评价词，要补你在什么任务里展现了这个能力。",
+    keywords: ["优势", "能力", "结果", "协作", "结构化", "表达", "判断"],
+  },
+  {
+    id: "weakness",
+    label: "短板与改进",
+    prompt: "你的短板是什么，你怎么面对它？",
+    intent: "考察自我认知、补短板的方法，以及是否会影响目标岗位。",
+    evidenceNeed: "一个真实短板 + 已经采取的改进行动 + 不影响胜任的边界。",
+    missingHint: "不要说完美主义，优先补一个可改进、可管理、不致命的短板。",
+    keywords: ["短板", "学习", "改进", "复盘", "补齐"],
+  },
+  {
+    id: "challenge",
+    label: "挑战经历",
+    prompt: "请讲一个你遇到困难并解决问题的经历。",
+    intent: "考察你面对不确定性时的判断、拆解和推进能力。",
+    evidenceNeed: "困难是什么、你怎么判断、采取了什么动作、结果怎样。",
+    missingHint: "如果故事太顺，要补阻力、取舍或你当时做出的判断。",
+    keywords: ["困难", "挑战", "解决", "推进", "判断", "复盘", "结果"],
+  },
+  {
+    id: "teamwork",
+    label: "团队合作",
+    prompt: "请讲一次团队合作或沟通冲突的经历。",
+    intent: "考察你是否能在协作里识别问题、推动共识和承担责任。",
+    evidenceNeed: "冲突或分歧 + 你的沟通动作 + 团队结果。",
+    missingHint: "如果没有冲突，也可以补一次你协调资源或推动别人一起完成的经历。",
+    keywords: ["团队", "协作", "沟通", "冲突", "协调", "推进"],
+  },
+  {
+    id: "future_plan",
+    label: "未来规划",
+    prompt: "你未来 1-3 年的规划是什么？",
+    intent: "考察你是否有成长方向，也是否理解目标路径。",
+    evidenceNeed: "短期目标 + 能力补齐计划 + 长期方向。",
+    missingHint: "如果规划太虚，要补一个近期可执行动作和一个要验证的问题。",
+    keywords: ["目标", "规划", "成长", "路径", "方向", "学习"],
+  },
 ];
 
 const state = {
@@ -36,6 +102,10 @@ function fallbackText(value, fallback = "") {
   return text || fallback;
 }
 
+function uniqueNonEmpty(values, limit = 5) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((item) => String(item ?? "").trim()).filter(Boolean))).slice(0, limit);
+}
+
 function showToast(message) {
   const toast = qs("#toast");
   if (!toast) return;
@@ -60,7 +130,7 @@ function writeJsonStorage(key, value) {
 
 function renderTemplateChips() {
   qs("#qaTemplateChips").innerHTML = qaTemplates.map((item) => `
-    <button class="qa-template-chip ${item.id === state.selectedTemplate.id ? "active" : ""}" type="button" data-template-id="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>
+    <button class="qa-template-chip ${item.id === state.selectedTemplate.id ? "active" : ""}" type="button" data-template-id="${escapeHtml(item.id)}" title="${escapeHtml(item.intent)}">${escapeHtml(item.label)}</button>
   `).join("");
 }
 
@@ -68,24 +138,42 @@ function getStoryBank() {
   return Array.isArray(state.draft?.storyBank) ? state.draft.storyBank : [];
 }
 
-function pickEvidence(templateId) {
+function getStoryHaystack(story) {
+  return [story.title, story.situation, story.task, story.action, story.result, story.evidence, Array.isArray(story.skills) ? story.skills.join(" ") : ""]
+    .map((item) => String(item || ""))
+    .join(" ");
+}
+
+function pickEvidence(template = state.selectedTemplate) {
   const stories = getStoryBank();
   if (!stories.length) return [];
-  const keywordMap = {
-    why_role: ["分析", "执行", "结构化", "推进"],
-    why_company: ["成长", "协作", "判断", "目标"],
-    self_intro: ["经历", "能力", "目标"],
-    strength: ["能力", "结构化", "协作", "推进"],
-    weakness: ["短板", "补齐", "学习"],
-    why_major: ["研究", "背景", "能力", "方向"],
-  };
-  const keywords = keywordMap[templateId] || [];
-  const scored = stories.map((story) => {
-    const haystack = `${story.title || ""} ${story.situation || ""} ${(Array.isArray(story.skills) ? story.skills.join(" ") : "")}`;
-    const score = keywords.reduce((sum, keyword) => sum + (haystack.includes(keyword) ? 1 : 0), 0);
+  const keywords = Array.isArray(template.keywords) ? template.keywords : [];
+  const scored = stories.map((story, index) => {
+    const haystack = getStoryHaystack(story);
+    const score = keywords.reduce((sum, keyword) => sum + (haystack.includes(keyword) ? 2 : 0), 0)
+      + (fallbackText(story.result) ? 1 : 0)
+      + (fallbackText(story.action) ? 1 : 0)
+      - index * 0.01;
     return { story, score };
   }).sort((a, b) => b.score - a.score);
   return scored.slice(0, 3).map((item) => item.story);
+}
+
+function formatEvidenceLine(story, fallback = "还需要补一条真实经历。") {
+  if (!story) return fallback;
+  const title = fallbackText(story.title, "相关经历");
+  const detail = fallbackText(story.result, fallbackText(story.action, fallbackText(story.situation, "这条经历还需要补动作和结果")));
+  return `${title}：${detail}`;
+}
+
+function buildDiscussionPrompts(template, evidence, role, org) {
+  return uniqueNonEmpty([
+    `这题真正要证明的是：${template.intent}`,
+    `当前最该补的证据：${template.evidenceNeed}`,
+    evidence.length ? "可以继续追问：这条故事里，你本人做出的关键判断是什么？" : `可以先补材料：${template.missingHint}`,
+    org !== "目标机构" ? `如果面向 ${org}，下一轮可以补它最看重的业务、项目或评价标准。` : "下一轮可以告诉我具体目标机构，我会把回答改得更贴合。",
+    role !== "目标方向" ? `如果面向 ${role}，下一轮可以讨论哪条经历最能证明适配。` : "下一轮可以告诉我具体岗位或项目方向，我会帮你选证据。",
+  ], 4);
 }
 
 function buildOutput() {
@@ -94,48 +182,44 @@ function buildOutput() {
   const tone = fallbackText(qs("#qaToneInput").value, "真诚简洁");
   const length = fallbackText(qs("#qaLengthInput").value, "控制在简洁范围");
   const extra = fallbackText(qs("#qaExtraInput").value);
-  const evidence = pickEvidence(state.selectedTemplate.id);
+  const template = state.selectedTemplate;
+  const evidence = pickEvidence(template);
   const profile = state.analysis?.careerProfile || {};
   const basic = profile.basic || {};
-  const lead = state.selectedTemplate.prompt;
-  const mainAxis = `回答这题时，主轴不要从空泛热情开始，而要从“我过去积累了什么能力，以及它为什么自然指向 ${role}”开始。`;
   const evidenceLines = evidence.length
-    ? evidence.map((item) => `${item.title || "相关经历"}：${item.situation || item.action || item.result || "还需要你补一点事实细节"}`)
-    : ["还没有足够的故事底稿，建议先去申请资料中心补 1-2 条经历。"];
-  const opening = `是的，我想走向 ${role}，而且这个选择不是临时起意，它和我过去已经积累的能力与经历是连着的。`;
+    ? evidence.map((item) => formatEvidenceLine(item))
+    : [template.missingHint];
+  const discussionPrompts = buildDiscussionPrompts(template, evidence, role, org);
+  const opening = `我会从 ${role} 需要的能力出发回答这题。我的判断是，这个选择不是临时兴趣，而是和我已有经历里反复出现的能力线索相连。`;
   const pointBlocks = [
     {
       heading: "我想要什么",
-      point: `我想把自己放进 ${role} 这样的场景里，不只是获得一个岗位名称，而是进入更匹配自己能力的工作问题。`,
-      evidence: evidence[0]?.title
-        ? `${evidence[0].title} 这段经历，让我确认自己更适合在复杂任务里做判断、推进和表达。`
-        : "目前还缺一条最能直接对位的经历，需要先补证据。",
+      point: `我想进入 ${role} 相关场景，核心不是换一个名称，而是处理更匹配自己能力的问题。`,
+      evidence: formatEvidenceLine(evidence[0], template.missingHint),
     },
     {
       heading: "为什么想要",
       point: extra
-        ? `我想要这个方向，也和我现在最在意的问题有关：${extra.replace(/[。；;]+$/g, "")}。`
-        : `我想要这个方向，是因为过往经历让我越来越清楚，自己更适合解决这类问题。`,
-      evidence: evidence[1]?.title
-        ? `${evidence[1].title} 说明这种倾向不是一次性的，而是反复出现过。`
-        : "如果能再补一条动机来源，这一层会更有说服力。",
+        ? `这个选择也和我现在最在意的问题有关：${extra.replace(/[。；;]+$/g, "")}。`
+        : "过去经历让我意识到，自己更愿意在需要判断、设计、沟通或推进的任务里成长。",
+      evidence: formatEvidenceLine(evidence[1], "这里还可以补一条动机来源，让回答不只停留在兴趣。"),
     },
     {
-      heading: "我怎么能要",
-      point: `我不是从零开始，我已经有相邻能力。下一步要做的，是把这些能力翻译成更直接的岗位证据。`,
-      evidence: evidence[2]?.title
-        ? `${evidence[2].title} 可以继续拆成 STAR，证明我不仅想做，而且做过、能做好。`
-        : "下一步先补一个能说明个人贡献和结果变化的案例。",
+      heading: "我凭什么能要",
+      point: "我不是从零开始，而是已经有相邻能力。下一步要做的是把这些能力翻译成更直接的岗位或申请证据。",
+      evidence: formatEvidenceLine(evidence[2], "这里还需要补一条能说明个人贡献和结果变化的案例。"),
     },
   ];
-  const longAnswer = `如果让我回答“${lead}”，我会这样展开：第一，我过去的经历并不是分散的，它们其实一直在积累某种一致的能力。第二，这些能力和 ${role} 需要解决的问题是相关的。第三，我并不是只想“试试看”，而是已经在过去的项目或经历里看到自己在这个方向上的适配感。${extra ? ` 另外，我也会特别注意：${extra}` : ""} 如果是面对 ${org} 这样的目标，我会把表达调整成更 ${tone} 的方式，并把篇幅控制在 ${length}。`;
+  const longAnswer = `如果让我回答“${template.prompt}”，我会先说明这题真正考察的是${template.intent} 对我来说，${role} 的吸引力不只是名称，而是它需要持续判断问题、组织资源并把想法落到结果里。我的经历里已经有一些相邻证据，例如${evidenceLines[0]}。这说明我不是凭空想象这个方向，而是在过去任务中已经接触过类似能力要求。面向 ${org}，我会用更${tone}的方式表达：我现在仍有需要补齐的地方，但我知道自己要补什么，也愿意用具体行动继续验证这个选择。`;
   return {
-    mainAxis,
+    mainAxis: `这题主要在考：${template.intent} 回答时先说判断，再给证据，最后承认下一步还要补什么。`,
     opening,
     pointBlocks,
-    reinforcement: `如果面对 ${org} 这样的目标，我不会只讲兴趣，而会用真实经历说明自己为什么值得这个机会，以及接下来会怎么继续补强。`,
+    reinforcement: `面对 ${org}，我不会只讲热情，而会用真实经历说明自己为什么适合 ${role}，并说明接下来怎么补齐能力。`,
     evidenceLines,
-    longAnswer,
+    discussionPrompts,
+    longAnswer: length.includes("短") ? longAnswer.slice(0, 220) : longAnswer,
+    followUpPrompt: discussionPrompts[1] || "继续补一条真实证据，再回来改这一题。",
     targetLine: `${basic.targetGoal || "当前目标"} · ${basic.targetDirection || role} · ${org}`,
   };
 }
@@ -155,8 +239,10 @@ function normalizeQaOutput(output) {
       }))
       : fallback.pointBlocks,
     reinforcement: fallbackText(safeOutput.reinforcement, fallback.reinforcement),
+    evidenceLines: Array.isArray(safeOutput.evidenceLines) && safeOutput.evidenceLines.length ? safeOutput.evidenceLines : fallback.evidenceLines,
+    discussionPrompts: Array.isArray(safeOutput.discussionPrompts) && safeOutput.discussionPrompts.length ? safeOutput.discussionPrompts : fallback.discussionPrompts,
     longAnswer: fallbackText(safeOutput.longAnswer, fallback.longAnswer),
-    followUpPrompt: fallbackText(safeOutput.followUpPrompt, "继续补证据，再回来改这一题。"),
+    followUpPrompt: fallbackText(safeOutput.followUpPrompt, fallback.followUpPrompt),
     meta: safeOutput.meta || {},
   };
 }
@@ -167,23 +253,23 @@ function renderOutput(output) {
   const modeLine = qs("#qaModeLine");
   if (normalized?.meta?.fallback) {
     modeLine.hidden = false;
-    modeLine.textContent = "当前是本地证据草稿模式：因为本地没有配置 DeepSeek key，所以先基于故事库生成一版结构化回答。";
+    modeLine.textContent = "当前是本地证据草稿模式：如果 AI 服务暂时不可用，系统会先基于故事库生成一版可讨论的回答。";
   } else {
     modeLine.hidden = true;
     modeLine.textContent = "";
   }
   qs("#qaOutputGrid").innerHTML = `
     <article class="qa-output-card">
-      <h3>回答主轴</h3>
+      <h3>这题在考什么</h3>
       <p>${escapeHtml(normalized.mainAxis)}</p>
     </article>
     <article class="qa-output-card">
-      <h3>正言</h3>
+      <h3>开头正言</h3>
       <p>${escapeHtml(normalized.opening)}</p>
     </article>
     <article class="qa-output-card">
-      <h3>强化</h3>
-      <p>${escapeHtml(normalized.reinforcement)}</p>
+      <h3>推荐证据</h3>
+      <ul>${normalized.evidenceLines.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
     </article>
     <article class="qa-output-card">
       <h3>分点与佐证</h3>
@@ -199,6 +285,14 @@ function renderOutput(output) {
       <h3>展开版回答</h3>
       <p>${escapeHtml(normalized.longAnswer)}</p>
     </article>
+    <article class="qa-output-card qa-discussion-card">
+      <h3>讨论与追问</h3>
+      <ul>${normalized.discussionPrompts.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </article>
+    <article class="qa-output-card">
+      <h3>收束强化</h3>
+      <p>${escapeHtml(normalized.reinforcement)}</p>
+    </article>
     <article class="qa-output-card">
       <h3>下一步</h3>
       <p>${escapeHtml(normalized.followUpPrompt)}</p>
@@ -211,13 +305,17 @@ function renderOutput(output) {
 function regenerateWithRefine(refineLabel) {
   if (!state.lastOutput) return;
   const suffixMap = {
-    "更口语一点": " 我会把句子再说得更自然一点，更像真实面试里的表达。",
-    "更正式一点": " 我会把表达收得更稳，更像正式书面申请。",
-    "更简短一点": " 我会保留主轴，但去掉多余铺垫。",
-    "换一个角度": " 我会从成长动机和长期方向的角度再说一次。",
+    "换一个故事": "我会先回到故事库，优先换用另一条更贴近目标的问题证据。",
+    "补充更多细节": "这一轮最值得补的是具体场景、你的动作、结果变化和别人如何评价。",
+    "改短一点": "我会保留判断和证据，但删掉铺垫，让它更适合网申框。",
+    "更像面试口语": "我会把句子改得更像真实面试里的表达，少一点书面腔。",
   };
-  state.lastOutput.longAnswer += suffixMap[refineLabel] || "";
+  const instruction = suffixMap[refineLabel] || "我会围绕这题继续优化回答。";
+  state.lastOutput.longAnswer = `${state.lastOutput.longAnswer} ${instruction}`;
+  state.lastOutput.followUpPrompt = instruction;
+  state.lastOutput.discussionPrompts = uniqueNonEmpty([instruction, ...(state.lastOutput.discussionPrompts || [])], 4);
   renderOutput(state.lastOutput);
+  writeJsonStorage(qaDraftStorageKey, state.lastOutput);
   showToast(`已按“${refineLabel}”调整`);
 }
 
@@ -255,6 +353,7 @@ function bindEvents() {
     } catch (error) {
       state.lastOutput = buildOutput();
       renderOutput(state.lastOutput);
+      writeJsonStorage(qaDraftStorageKey, state.lastOutput);
       showToast(error.message || "问答生成失败，已退回本地草稿");
     } finally {
       qs("#generateQaBtn").disabled = false;
